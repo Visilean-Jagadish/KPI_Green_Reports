@@ -1,0 +1,2532 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3D Digital Twin</title>
+<style>
+  /* the KPI_Green dashboard's tokens (ntpc_dash_template_v3.html), so the twin reads as one of its pages */
+  :root {
+    --bg: #f7f9fc; --panel: #ffffff; --line: #e3e8f0; --text: #002d62; --muted: #5b6b80;
+    --accent: #00a3e0; --accent-soft: rgba(0,163,224,.10); --top: #002d62; --top-text: #ffffff;
+    --shadow: 0 1px 0 rgba(0,45,98,.02), 0 6px 24px -18px rgba(0,45,98,.15);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 12px/1.45 Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  #app { display: grid; grid-template-rows: 1fr; grid-template-columns: 300px 1fr 330px; height: 100%; }
+  #app.no-left { grid-template-columns: 0 1fr 330px; }
+  #app.no-right { grid-template-columns: 300px 1fr 0; }
+  #app.no-left.no-right { grid-template-columns: 0 1fr 0; }
+  @media (max-width: 1150px) {
+    #app { grid-template-columns: 240px 1fr 0; }
+    #app.show-right { grid-template-columns: 240px 1fr 290px; }
+    #app.no-left { grid-template-columns: 0 1fr 0; }
+    #app.no-left.show-right { grid-template-columns: 0 1fr 290px; }
+  }
+  @media (max-width: 560px) {
+    #app, #app.show-right { grid-template-columns: 0 1fr 0; }
+  }
+  .btn { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+    padding: 5px 10px; cursor: pointer; font: inherit; white-space: nowrap; }
+  .btn:hover { background: #e6f6fc; }
+  .btn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+  /* floating controls over the 3D view: one of each, nothing repeated */
+  /* transparent boxes over the model; a light halo keeps the text readable on any background */
+  .float { position: absolute; z-index: 4; background: transparent; text-shadow: 0 0 3px #fff, 0 0 2px #fff; }
+  .float .btn { background: transparent; }
+  .float .btn:hover, .float .btn:focus-visible { background: rgba(255,255,255,.6); }
+  #strip { left: 8px; top: 8px; display: flex; flex-direction: column; gap: 1px; }
+  #strip button { display: flex; flex-direction: column; align-items: center; gap: 1px; width: 52px; padding: 4px 1px 3px; white-space: nowrap; border: 1px solid transparent;
+    border-radius: 5px; background: none; cursor: pointer; font: 9px/1.15 inherit; font-family: inherit; color: var(--text); }
+  #strip button svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  #strip button:hover { background: rgba(255,255,255,.6); }
+  #strip button.on { background: rgba(0,163,224,.16); border-color: var(--accent); }
+  #strip button:disabled { opacity: .4; cursor: default; }
+  #strip hr { width: 30px; border: 0; border-top: 1px solid var(--line); margin: 1px auto; }
+  #bStrip .ic-max, #strip.min #bStrip .ic-min { display: none; }
+  #strip.min #bStrip .ic-max { display: block; }
+  #strip.min > :not(#bStrip) { display: none; }
+  #tools { left: 68px; top: 8px; display: flex; gap: 6px; }
+  #tools .btn { padding: 4px 8px; }
+  #navCube { right: 10px; top: 8px; width: 110px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  #navCube .cube-row { display: flex; align-items: center; gap: 6px; }
+  #bFit { width: 28px; height: 28px; padding: 0; display: flex; align-items: center; justify-content: center; }
+  #bFit svg { width: 16px; height: 16px; stroke: var(--text); fill: none; stroke-width: 1.8; stroke-linejoin: round; }
+  #bTop { width: 54px; height: 54px; padding: 0; font-weight: 700; font-size: 11px; letter-spacing: .06em; color: var(--text);
+    background: linear-gradient(145deg, rgba(255,255,255,.55), rgba(223,230,239,.55)); border: 1px solid #b9c7da; border-radius: 4px; transform: perspective(120px) rotateX(28deg); }
+  #bTop:hover { background: var(--accent-soft); border-color: var(--accent); }
+  #views { width: 100%; padding: 3px 4px; font-size: 11px; }
+  .handle { position: absolute; top: 50%; z-index: 4; width: 14px; height: 48px; margin-top: -24px; padding: 0; border: 1px solid var(--line);
+    background: var(--panel); color: var(--muted); cursor: pointer; font: 12px/1 inherit; box-shadow: var(--shadow); }
+  .handle:hover { color: var(--accent); }
+  #hLeft { left: 0; border-left: 0; border-radius: 0 6px 6px 0; }
+  #hRight { right: 0; border-right: 0; border-radius: 6px 0 0 6px; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
+  aside.right { border-right: 0; border-left: 1px solid var(--line); }
+  .tabs { display: flex; border-bottom: 1px solid var(--line); }
+  .tabs button { flex: 1; padding: 9px 4px; border: 0; background: none; cursor: pointer; font: inherit; color: var(--muted); border-bottom: 2px solid transparent; }
+  .tabs button.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .pane { flex: 1; overflow: auto; padding: 6px 0; display: none; }
+  .pane.on { display: block; }
+  .row { display: flex; align-items: center; gap: 4px; padding: 2px 8px; cursor: pointer; white-space: nowrap; }
+  .row:hover { background: #f1f3f5; }
+  .row.sel { background: var(--accent-soft); }
+  .row .tw { width: 14px; text-align: center; color: var(--muted); flex: none; font-size: 10px; }
+  .row .eye { width: 18px; flex: none; text-align: center; opacity: .7; }
+  .row .eye.off { opacity: .25; }
+  .row .nm { overflow: hidden; text-overflow: ellipsis; flex: 1; }
+  .row .ct { color: var(--muted); font-size: 11px; }
+  .cls { font-size: 10px; color: var(--muted); background: #f1f3f5; border-radius: 3px; padding: 0 4px; flex: none; }
+  .props { padding: 10px 12px; overflow: auto; flex: 1; }
+  .props h3 { font-size: 13px; margin: 14px 0 6px; color: var(--accent); }
+  .props h2 { font-size: 14px; margin: 0 0 4px; word-break: break-word; }
+  .props table { width: 100%; border-collapse: collapse; }
+  .props td { padding: 3px 4px; border-bottom: 1px solid #f0f1f3; vertical-align: top; word-break: break-word; }
+  .props td:first-child { color: var(--muted); width: 45%; }
+  .muted { color: var(--muted); }
+  main { position: relative; overflow: hidden; }
+  canvas { display: block; }
+  #overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(244,245,247,.92); z-index: 5; }
+  #overlay .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 22px 26px; width: min(460px, 90%); text-align: center; box-shadow: 0 8px 30px rgba(0,0,0,.08); }
+  #overlay .bar { height: 8px; background: #e9ecef; border-radius: 4px; overflow: hidden; margin: 14px 0 8px; }
+  #overlay .bar div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  #drop.hint { border: 2px dashed var(--accent); border-radius: 10px; padding: 18px; margin-top: 12px; color: var(--muted); }
+  #legend { position: absolute; right: 12px; bottom: 12px; background: rgba(255,255,255,.95); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; max-height: 45%; overflow: auto; display: none; font-size: 11px; }
+  #legend .it { display: flex; align-items: center; gap: 6px; margin: 2px 0; cursor: pointer; }
+  #legend .it .vl { min-width: 96px; text-align: center; }
+  #legend .it .n { width: 62px; text-align: right; font-variant-numeric: tabular-nums; }
+  #legend .it.hd { cursor: default; color: var(--muted); font-size: 10px; } #legend .it.hd > span:first-child { min-width: 96px; }
+  #legend .sw { width: 12px; height: 12px; border-radius: 2px; flex: none; }
+  /* VisiLean status chips (colours sampled from VisiLean) */
+  :root { --vl-nr: #d47d70; --vl-nc: #ddd75d; --vl-rd: #7fc4d8; --vl-fr: #f0a35e; --vl-cm: #4a90d9; --vl-st: #3c007b; --vl-cp: #72a64c; --vl-late: #d13636; }
+  .vl { display: inline-block; border-radius: 4px; padding: 1px 7px; font-size: 10.5px; font-weight: 600; white-space: nowrap; line-height: 1.6; color: #fff; }
+  .vl.nr { background: var(--vl-nr); } .vl.nc { background: var(--vl-nc); color: #3a3608; } .vl.rd { background: var(--vl-rd); color: #0d3440; }
+  .vl.fr { background: var(--vl-fr); color: #3d2104; } .vl.cm { background: var(--vl-cm); } .vl.st { background: var(--vl-st); } .vl.cp { background: var(--vl-cp); }
+  .vl.late { background: transparent; color: var(--vl-late); border: 1px solid var(--vl-late); }
+  .eyebrow { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+  .sch-sec { padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  .sch-lab { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; display: block; }
+  .sch-lab .muted { text-transform: none; letter-spacing: 0; font-weight: 400; }
+  .sch-in { width: 100%; padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px; font: inherit; background: #fff; margin-bottom: 6px; }
+  .sch-filters { display: flex; gap: 6px; } .sch-filters .sch-in { flex: 1; min-width: 0; }
+  .chk { display: flex; gap: 6px; align-items: center; font-size: 12px; margin: 4px 0; cursor: pointer; }
+  /* element filter at the top of the Model tree tab */
+  .efilter { padding: 8px 10px 6px; border-bottom: 1px solid var(--line); background: #fafbfc; position: sticky; top: -6px; z-index: 1; }
+  .efilter .frow { display: flex; gap: 6px; align-items: flex-start; } .efilter .frow .sch-in { flex: 1; min-width: 0; margin-bottom: 5px; }
+  .efilter .fclr { flex: none; padding: 5px 9px; border: 1px solid var(--line); background: #fff; border-radius: 6px; cursor: pointer; font: inherit; }
+  .efilter .fclr:hover { background: #eef1f4; }
+  #fInfo { font-size: 11.5px; } #fInfo b { color: var(--text); }
+  #fList { max-height: 160px; overflow: auto; margin-top: 4px; border-top: 1px solid var(--line); }
+  #fList:empty { display: none; }
+  /* 4D timeline */
+  #timeline { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 4; background: rgba(255,255,255,.97); border: 1px solid var(--line);
+    border-radius: 10px; padding: 8px 10px; box-shadow: 0 6px 24px rgba(0,0,0,.12); }
+  #timeline[hidden] { display: none; }
+  #view.tl-on #legend { bottom: 178px; }
+  .tl-row { display: flex; align-items: center; gap: 8px; }
+  .tl-mode { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex: none; }
+  .tl-mode button { border: 0; background: #fff; padding: 5px 10px; font: inherit; cursor: pointer; color: var(--muted); }
+  .tl-mode button.on { background: var(--top); color: #fff; }
+  .tl-b { border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 4px 9px; cursor: pointer; font: inherit; flex: none; }
+  .tl-b:hover { background: #eef1f4; }
+  #tlSlider { flex: 1; min-width: 80px; accent-color: var(--accent); }
+  .tl-date { font-weight: 600; min-width: 150px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tl-sel { border: 1px solid var(--line); border-radius: 6px; padding: 4px; font: inherit; background: #fff; flex: none; }
+  .tl-row2 { display: flex; gap: 12px; margin-top: 6px; align-items: stretch; }
+  #tlChart { flex: 1; min-width: 0; height: 104px; display: block; }
+  .tl-legend { width: 300px; flex: none; font-size: 12px; }
+  .tl-legend .it { display: flex; align-items: center; gap: 6px; padding: 1px 4px; border-radius: 4px; cursor: pointer; }
+  .tl-legend .it:hover { background: #f1f3f5; }
+  .tl-legend .it b { margin-left: auto; font-variant-numeric: tabular-nums; }
+  .tl-legend .sw { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  .tl-legend .hd { font-weight: 600; margin-bottom: 3px; }
+  .tl-cmp { border-collapse: collapse; width: 100%; } .tl-cmp th { text-align: right; font-weight: 600; color: var(--muted); padding: 0 4px; }
+  .tl-cmp th:first-child { text-align: left; } .tl-cmp td { padding: 1px 4px; text-align: right; font-variant-numeric: tabular-nums; }
+  .tl-cmp td:first-child { text-align: left; display: flex; align-items: center; gap: 6px; }
+  /* split screen (compare with actual) */
+  #cmpDiv { position: absolute; top: 0; bottom: 0; width: 8px; margin-left: -4px; z-index: 3; cursor: col-resize; background: transparent; }
+  #cmpDiv { width: 16px; margin-left: -8px; }
+  #cmpDiv::before { content: ''; position: absolute; left: 7px; top: 0; bottom: 0; width: 2px; background: #5b6b80; }
+  #cmpDiv[hidden], .cmp-lab[hidden] { display: none; }
+  .cmp-grip { position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%); width: 32px; height: 32px; border-radius: 50%; background: #fff; color: #14213d;
+    box-shadow: 0 1px 6px rgba(0,0,0,.3); display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; letter-spacing: -1px; }
+  #cmpR { background: #0b6bcb; }
+  .cmp-lab { position: absolute; top: 54px; z-index: 3; background: rgba(20,33,61,.88); color: #fff; padding: 4px 10px; border-radius: 6px; font-weight: 600; font-size: 12.5px; pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sch-btn { width: 100%; margin-top: 6px; padding: 6px; border: 1px solid var(--line); background: #f6f8fa; border-radius: 6px; cursor: pointer; font: inherit; }
+  .sch-btn:hover { background: #eef1f4; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chips .chip { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; padding: 3px 4px 3px 3px; border: 1px solid var(--line); border-radius: 6px; font-variant-numeric: tabular-nums; }
+  .chips .chip:hover { background: #f1f3f5; }
+  .arow { padding: 6px 12px; border-bottom: 1px solid #f0f1f3; cursor: pointer; }
+  .arow:hover { background: #f6f8fa; } .arow.sel { background: var(--accent-soft); }
+  .arow .l1 { display: flex; gap: 6px; align-items: center; } .arow .id { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .arow .nm2 { font-size: 12.5px; margin: 2px 0; } .arow .dt { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .arow .nolink { font-size: 10.5px; color: var(--faint, #7e8c96); }
+  #tags { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 2; }
+  .tag { position: absolute; transform: translate(-50%, -100%); margin-top: -6px; white-space: nowrap; font: 11px/1.25 "Segoe UI", system-ui, sans-serif;
+    padding: 2px 6px; border-radius: 4px; background: rgba(20,33,61,.84); color: #fff; pointer-events: auto; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+  .tag::after { content: ''; position: absolute; left: 50%; top: 100%; transform: translateX(-50%); border: 5px solid transparent; border-top-color: inherit; }
+  .tag.l0 { font-size: 15px; font-weight: 600; background: rgba(11,107,203,.94); border-top-color: rgba(11,107,203,.94); padding: 3px 9px; }
+  .tag.l1 { font-size: 13px; font-weight: 600; background: rgba(255,138,0,.95); color: #1b1300; border-top-color: rgba(255,138,0,.95); }
+  .tag.l2 { border-top-color: rgba(20,33,61,.84); }
+  .tag.l3 { font-size: 10px; background: rgba(255,255,255,.9); color: #14213d; border-top-color: rgba(255,255,255,.9); padding: 1px 4px; }
+  .tag:hover { filter: brightness(1.15); z-index: 3; }
+  /* activity panel: the dashboard's #actpanel / .pgrp / .pprow */
+  .actpop { position: absolute; right: 12px; top: 8px; z-index: 6; width: min(404px, calc(100% - 24px)); max-height: calc(100% - 16px); display: flex; flex-direction: column;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; box-shadow: 0 18px 45px -12px rgba(0,45,98,.35), 0 0 0 1px rgba(0,45,98,.06); }
+  .actpop[hidden] { display: none; }
+  .actpop-hd { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  #actPopT { flex: 1; min-width: 0; font-size: 13px; font-weight: 800; line-height: 1.35; }
+  #actPopX { border: 1px solid #e5eaf0; background: var(--panel); color: #111; border-radius: 8px; width: 24px; height: 24px; cursor: pointer; flex: none; line-height: 1; font-size: 14px; }
+  #actPopX:hover { background: var(--accent-soft); color: var(--accent); }
+  .actpop-bd { padding: 9px 12px 13px; overflow: auto; }
+  .pgrp { margin-top: 10px; } .pgrp:first-child { margin-top: 0; }
+  .pgrp > .gh { font-size: 10.5px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); padding-bottom: 3px; border-bottom: 1px solid var(--line); margin-bottom: 5px; }
+  .pprow { display: grid; grid-template-columns: 110px 1fr; gap: 3px 10px; font-size: 11px; padding: 1.5px 0; align-items: start; }
+  .pprow .k { color: var(--muted); overflow-wrap: anywhere; } .pprow .v { font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  table.acts tr { cursor: pointer; } table.acts tr:hover td { background: #e6f6fc; }
+  kbd { background: #eef0f3; border: 1px solid #d0d4d9; border-radius: 3px; padding: 0 4px; font-size: 11px; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="app">
+  <aside id="left">
+    <div class="tabs"><button data-t="tree" class="on">Model tree</button><button data-t="sched" id="tabSched" style="display:none">Schedule</button></div>
+    <div class="pane" id="p-sched">
+      <div class="sch-sec">
+        <div class="sch-lab">Activities by VisiLean status</div>
+        <div id="schChips" class="chips"></div>
+      </div>
+      <div class="sch-sec">
+        <label class="sch-lab" for="schWp">Colour model by</label>
+        <select id="schWp" class="sch-in"><option value="">All linked activities (roll-up)</option></select>
+        <label class="chk"><input type="checkbox" id="schBuilt"> Show only Started / Complete (as-built)</label>
+        <label class="chk"><input type="checkbox" id="schDelayed"> Highlight delayed activities in red</label>
+      </div>
+      <div class="sch-sec">
+        <div class="sch-lab">Filter linked elements <span class="muted">· highlights matches, fades the rest</span></div>
+        <select id="schStat" class="sch-in" title="VisiLean status"><option value="">All VisiLean statuses</option></select>
+        <select id="schLoc" class="sch-in" title="VisiLean location"><option value="">All locations</option></select>
+        <select id="schKind" class="sch-in" title="Element type"><option value="">All element types</option></select>
+        <div style="display:flex;gap:6px;align-items:flex-start"><div id="schFInfo" class="muted" style="flex:1;font-size:11.5px"></div><button id="schFClear" class="fclr" title="Clear filter and selection">Clear</button></div>
+      </div>
+    </div>
+    <div class="pane on" id="p-tree">
+      <div class="efilter">
+        <div class="sch-lab">Filter elements <span class="muted">· highlights matches, fades the rest</span></div>
+        <div class="frow"><select id="fKind" class="sch-in" title="Element type"></select><select id="fBlock" class="sch-in" title="Block"></select></div>
+        <div class="frow"><input id="fName" class="sch-in" placeholder="Name contains… e.g. INV05, T0012"><button id="fClear" class="fclr" title="Clear filter and selection">Clear</button></div>
+        <div id="fInfo" class="muted"></div>
+        <div id="fList"></div>
+      </div>
+      <div id="treeRoot"></div>
+    </div>
+  </aside>
+  <main id="view">
+    <div id="overlay"><div class="card">
+      <div style="font-size:15px;font-weight:600" id="ovTitle">Loading viewer…</div>
+      <div class="bar"><div id="ovBar"></div></div>
+      <div class="muted" id="ovMsg">Starting</div>
+      <div id="drop" class="hint" style="display:none">Drop an <b>.ifc</b> / <b>.ifczip</b> file here</div>
+    </div></div>
+    <nav id="strip" class="float" aria-label="View">
+      <button id="bStrip" title="Minimise the toolbar" aria-label="Minimise the toolbar"><svg class="ic-min" viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg><svg class="ic-max" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg></button>
+      <button class="on" id="bReal" title="Realistic rendering: sky, sun, textures, reflections (R)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>Realistic</button>
+      <button class="on" id="bShadow" title="Sun shadows (S)"><svg viewBox="0 0 24 24"><path d="M4 18h16M7 18l3-10h4l3 10"/><path d="M14 18l6-4" stroke-dasharray="2 2"/></svg>Shadows</button>
+      <button class="on" id="bLabels" title="Show labels (L)"><svg viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8L3 12z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>Labels</button>
+      <button class="on" id="bFocus" title="Focus: draw the selection solid and fade everything else (G)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M3 8V3h5M21 8V3h-5M3 16v5h5M21 16v5h-5"/></svg>Focus</button>
+      <hr>
+      <button id="bIso" title="Isolate selection (I)"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="8" height="8"/><path d="M3 3h4M17 3h4M3 21h4M17 21h4" opacity=".5"/></svg>Isolate</button>
+      <button id="bHide" title="Hide selection (H)"><svg viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><path d="M4 20L20 4"/></svg>Hide</button>
+      <button id="bShow" title="Show all (A)"><svg viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>Show all</button>
+    </nav>
+    <div id="tools" class="float">
+      <select class="btn" id="colorMode" title="Colour mode">
+        <option value="ifc">Colours: IFC materials</option>
+        <option value="status" id="optStatus" disabled>Colours: VisiLean status</option>
+        <option value="container">Colours: by block / container</option>
+        <option value="timeline" hidden>Colours: 4D timeline</option>
+      </select>
+      <button class="btn" id="bSim" style="display:none" title="4D simulation: play the construction sequence over time">4D Simulation</button>
+      <button class="btn" id="bPva" style="display:none" title="Split screen: plan or forecast (left) against actual (right)">Plan vs Actual</button>
+    </div>
+    <div id="navCube" class="float">
+      <div class="cube-row">
+        <button class="btn" id="bFit" title="Fit whole model (F)" aria-label="Fit whole model"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7M5 9.5V20h14V9.5"/></svg></button>
+        <button class="btn" id="bTop" title="Top view (T)">TOP</button>
+      </div>
+      <select class="btn" id="views" title="Zoom to"><option value="">Zoom to…</option></select>
+    </div>
+    <button class="handle" id="hLeft" title="Hide the left panel" aria-label="Hide the left panel">‹</button>
+    <button class="handle" id="hRight" title="Hide the right panel" aria-label="Hide the right panel">›</button>
+    <div id="legend"></div>
+    <aside id="actPop" class="actpop" hidden aria-label="Activity detail">
+      <div class="actpop-hd"><div id="actPopT"></div><button type="button" id="actPopX" title="Close (Esc)" aria-label="Close">&times;</button></div>
+      <div id="actPopB" class="actpop-bd"></div>
+    </aside>
+    <div id="cmpDiv" hidden title="Drag to slide between the two"><div class="cmp-grip">‹ ›</div></div>
+    <div id="cmpL" class="cmp-lab" hidden></div><div id="cmpR" class="cmp-lab" hidden></div>
+    <div id="timeline" hidden>
+      <div class="tl-row">
+        <div class="tl-mode"><button data-m="sim">4D Simulation</button><button data-m="cmp">Compare with Actual</button></div>
+        <select id="tlBasis" class="tl-sel" title="Which dates drive the view"></select>
+        <button id="tlPlay" class="tl-b" title="Play / pause">▶ Play</button>
+        <button id="tlDD" class="tl-b" title="Jump to the schedule data date">Data date</button>
+        <input type="range" id="tlSlider" min="0" max="100" step="1" title="Drag to change the date">
+        <div id="tlDate" class="tl-date"></div>
+        <select id="tlSpeed" class="tl-sel" title="Step per frame while playing"><option value="1">1 day / step</option><option value="7" selected>1 week / step</option><option value="30">1 month / step</option></select>
+        <button id="tlClose" class="tl-b" title="Close the timeline">✕</button>
+      </div>
+      <div class="tl-row2"><canvas id="tlChart"></canvas><div id="tlLegend" class="tl-legend"></div></div>
+    </div>
+  </main>
+  <aside class="right" id="right"><div class="props" id="props"><p class="muted">Click an element in the 3D view or the tree to see its properties.</p>
+    <h3>Navigation</h3>
+    <p class="muted">Left-drag rotate · Right-drag pan · Mouse wheel zooms in/out on the point under the cursor<br>Double-click: fly in to that spot<br>
+    <kbd>F</kbd> fit · <kbd>T</kbd> top · <kbd>G</kbd> focus on/off · <kbd>I</kbd> isolate · <kbd>H</kbd> hide · <kbd>A</kbd> show all · <kbd>Esc</kbd> clear</p></div></aside>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+// web-ifc (IFC engine) is loaded on demand: the prepared 3D package does not need it, only raw .ifc files do
+const WEBIFC_URL = 'https://cdn.jsdelivr.net/npm/web-ifc@0.0.66/web-ifc-api.js';
+let WebIFC = null;
+import { unzipSync } from 'https://cdn.jsdelivr.net/npm/fflate@0.8.2/esm/browser.js';
+
+const DEFAULT_FILE = 'Khavda_Hybrid_Park_S6a-234MW.ifc';
+const $ = (id) => document.getElementById(id);
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// ---------------------------------------------------------------- three.js scene
+const view = $('view');
+const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+view.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, 1, 0.3, 600000);
+camera.position.set(0, 3000, 6000);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = 0.12;
+controls.enableZoom = false;          // wheel zoom is handled below: about the point under the cursor
+controls.maxPolarAngle = Math.PI * 0.495;
+controls.screenSpacePanning = false;
+camera.near = 0.1;                     // logarithmic depth buffer: a fixed small near plane never clips close-ups
+
+// --- sun, sky dome (atmospheric scattering baked into a cube map) and image-based lighting
+const SUN_ELEV = 42, SUN_AZ = 145;                     // degrees; azimuth from north, clockwise (SE morning sun)
+const sunDir = new THREE.Vector3();
+{ const el = THREE.MathUtils.degToRad(SUN_ELEV), az = THREE.MathUtils.degToRad(SUN_AZ);
+  sunDir.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el)).normalize(); }   // three: +x east, -z north
+const hemi = new THREE.HemisphereLight(0xcfe3ff, 0xc9a77a, 0.55); scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xfff1dc, 2.6);
+sun.castShadow = true;
+sun.shadow.mapSize.set(4096, 4096);
+sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04;
+scene.add(sun); scene.add(sun.target);
+const skyColor = new THREE.Color(0xbcd6ee);
+let skyCube = null, envMap = null;
+function buildSky() {
+  // gradient + sun glow + soft clouds painted on a cube map: works with the log depth buffer and gives sky reflections on the PV glass
+  const size = 512, cubeScene = new THREE.Scene();
+  const mat = new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false,
+    uniforms: { sunDir: { value: sunDir } },
+    vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+    fragmentShader: `varying vec3 vDir; uniform vec3 sunDir;
+      float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
+      float noise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+        return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y); }
+      float fbm(vec2 p){ float v=0.0, a=0.5; for(int i=0;i<5;i++){ v+=a*noise(p); p*=2.03; a*=0.5; } return v; }
+      void main(){
+        vec3 d = normalize(vDir); float h = clamp(d.y, -1.0, 1.0);
+        vec3 zenith = vec3(0.07,0.26,0.70), horizon = vec3(0.58,0.74,0.92), ground = vec3(0.78,0.70,0.58);
+        vec3 col = h > 0.0 ? mix(horizon, zenith, pow(h, 0.55)) : mix(horizon, ground, clamp(-h*6.0,0.0,1.0));
+        float s = max(dot(d, normalize(sunDir)), 0.0);
+        col += vec3(1.0,0.92,0.78) * (pow(s, 600.0)*6.0 + pow(s, 12.0)*0.25);
+        if (h > 0.02) {                           // cumulus layer projected on a plane
+          vec2 uv = d.xz / (d.y + 0.08) * 1.6;
+          float c = smoothstep(0.52, 0.78, fbm(uv + vec2(3.1, 7.7)));
+          float shade = 0.82 + 0.18 * fbm(uv * 1.7 + 11.0);
+          col = mix(col, vec3(1.0) * shade, c * smoothstep(0.02, 0.18, h) * 0.92);
+        }
+        gl_FragColor = vec4(col, 1.0);
+      }` });
+  cubeScene.add(new THREE.Mesh(new THREE.SphereGeometry(10, 64, 32), mat));
+  const rt = new THREE.WebGLCubeRenderTarget(size, { type: THREE.HalfFloatType });
+  const cc = new THREE.CubeCamera(0.1, 100, rt);
+  const tm = renderer.toneMapping; renderer.toneMapping = THREE.NoToneMapping;
+  cc.update(renderer, cubeScene);
+  renderer.toneMapping = tm;
+  skyCube = rt.texture;
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  envMap = pmrem.fromCubemap(skyCube).texture;
+  pmrem.dispose();
+}
+buildSky();
+let realistic = true, shadowsOn = true;
+let focusOn = true, focusActive = false;      // focus mode: selection solid, rest faded (see refreshFocus)
+function applyEnvironment() {
+  scene.background = realistic ? skyCube : skyColor;
+  scene.environment = realistic ? envMap : null;
+  scene.fog = realistic ? new THREE.FogExp2(0xb4cbe4, 0.000032) : null;
+  renderer.toneMapping = realistic ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
+  hemi.intensity = realistic ? 0.55 : 1.15;
+  sun.intensity = realistic ? 2.6 : 1.6;
+  sun.castShadow = realistic && shadowsOn && !focusActive;
+  needsRender = true; shadowDirty = true;
+}
+function updateSun() {
+  // shadow frustum follows the orbit target and shrinks/grows with the view distance
+  const t = controls.target, dist = camera.position.distanceTo(t);
+  const half = THREE.MathUtils.clamp(dist * 0.9, 40, 2500);
+  sun.position.copy(t).addScaledVector(sunDir, half * 3 + 500);
+  sun.target.position.copy(t);
+  if (scene.fog) scene.fog.density = 0.6 / Math.max(dist * 4, 18000);     // light haze near the ground, clear from high above
+  const c = sun.shadow.camera;
+  if (c.right !== half) { c.left = -half; c.right = half; c.top = half; c.bottom = -half; c.near = 1; c.far = half * 6 + 1000; c.updateProjectionMatrix(); }
+}
+const modelRoot = new THREE.Group(); scene.add(modelRoot);
+
+function resize() {
+  const r = view.getBoundingClientRect();
+  renderer.setSize(r.width, r.height, false);
+  renderer.domElement.style.width = r.width + 'px'; renderer.domElement.style.height = r.height + 'px';
+  camera.aspect = r.width / Math.max(1, r.height); camera.updateProjectionMatrix();
+}
+new ResizeObserver(() => { resize(); needsRender = true; }).observe(view); resize();   // setSize clears the canvas: draw again
+let needsRender = true, shadowDirty = true;
+controls.addEventListener('change', () => { needsRender = true; shadowDirty = true; });
+renderer.shadowMap.autoUpdate = false;           // shadows re-rendered only when the view changes
+const clock = new THREE.Clock();
+requestAnimationFrame(function loop() {
+  requestAnimationFrame(loop);
+  const dt = Math.min(clock.getDelta(), 0.1);
+  if (camAnim) stepCamAnim(dt);
+  if (controls.update() || needsRender) {
+    updateSun(); updateLOD();
+    renderer.shadowMap.needsUpdate = shadowDirty; shadowDirty = false;
+    if (cmp.on) { renderer.shadowMap.needsUpdate = false; cmpRender(); }
+    else { renderer.render(scene, camera); updateTags(); }
+    needsRender = false;
+  }
+});
+
+// ---------------------------------------------------------------- state
+const tagList = [];                  // {text, pos, lvl, maxDist, eids}
+let labelsOn = true;
+let ifc = null;
+let modelID = -1;
+let META = null, META_PSETS = [], META_TYPES = [];   // metadata of a prepared 3D package (scene mode)
+const metaOf = (id) => META && META.get(id);
+function tagOf(eid) { const m = metaOf(eid); if (m) return m.tag; try { return ifc.GetLine(modelID, eid).Tag?.value || ''; } catch (e) { return ''; } }
+let E0 = 0, N0 = 0, crsName = '';
+const geoCache = new Map();          // geometryExpressID -> {pos, nrm, idx, bbox}
+const elements = new Map();          // expressID -> {parts:[], type, container, hidden, color0:[]}
+const meshes = [];                   // pickable meshes
+let selected = new Set();
+let colorMode = 'ifc';
+const spatial = { nodes: new Map(), root: null };   // id -> {id, name, type, kids:[], elems:[]}
+const nameCache = new Map();
+
+function setOverlay(title, msg, frac) {
+  $('overlay').style.display = 'flex';
+  if (title != null) $('ovTitle').textContent = title;
+  if (msg != null) $('ovMsg').textContent = msg;
+  if (frac != null) $('ovBar').style.width = Math.round(frac * 100) + '%';
+}
+const hideOverlay = () => { $('overlay').style.display = 'none'; };
+
+// ---------------------------------------------------------------- loading
+async function ensureIfc() {
+  if (ifc) return;
+  setOverlay('Loading model…', 'Starting the IFC engine', 0.04);
+  WebIFC = await import(WEBIFC_URL);
+  ifc = new WebIFC.IfcAPI();
+  // the wasm comes from the CDN, as the JS does: the published twin ships only index.html, scene.bin and schedule.json
+  ifc.SetWasmPath('https://cdn.jsdelivr.net/npm/web-ifc@0.0.66/', true);
+  await ifc.Init(undefined, true);
+}
+function b64ToBytes(b64) {
+  const bin = atob(b64), u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return u8;
+}
+async function init() {
+  setOverlay('Loading model…', 'Preparing the 3D view', 0.03);
+  const param = new URLSearchParams(location.search).get('file');
+  // 1) prepared 3D package (fast): embedded in the page, scene.bin next to it, or scene-data.js for pages opened from disk
+  if (!param) {
+    try {
+      if (!window.SCENE_B64 && location.protocol === 'file:') {
+        for (const src of ['scene-data.js']) {
+          if (window.SCENE_B64) break;
+          try { await loadScript(src); } catch (e) { /* next */ }
+        }
+      }
+      let pkg = null;
+      if (window.SCENE_B64) { pkg = b64ToBytes(window.SCENE_B64); window.SCENE_B64 = null; }
+      else if (location.protocol !== 'file:') { try { pkg = await fetchWithProgress('scene.bin'); } catch (e) { pkg = null; } }
+      if (pkg) { await loadScene(pkg, window.SCENE_NAME || 'Khavda S6a model'); return; }
+    } catch (e) { console.warn('3D package failed, falling back to IFC', e); }
+  }
+  // 2) raw IFC (slower, needs the IFC engine)
+  const url = param || DEFAULT_FILE;
+  try {
+    await ensureIfc();
+    // served over http(s): fetch the IFC next to the page; opened by double-click (file://): use the embedded model script
+    if (location.protocol === 'file:' && !param) { const m = await loadEmbedded(); await loadBuffer(m.data, m.name); }
+    else {
+      let buf, name = url.split('/').pop();
+      try { buf = await fetchWithProgress(url); } catch (e) { const m = await loadEmbedded(); buf = m.data; name = m.name; }
+      await loadBuffer(buf, name);
+    }
+  } catch (e) {
+    console.warn(e);
+    setOverlay('Open an IFC model', 'Could not load "' + url + '" automatically.', 0);
+    $('drop').style.display = 'block';
+  }
+}
+
+// model-data.js defines window.IFC_MODEL_B64 (base64 of the .ifczip). Script tags may load local files, fetch may not.
+const EMBEDDED_SOURCES = ['model-data.js'];
+function loadScript(src) {
+  return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+}
+async function loadEmbedded() {
+  for (const src of EMBEDDED_SOURCES) {
+    if (window.IFC_MODEL_B64) break;
+    setOverlay('Loading model…', 'Reading embedded model', 0.1);
+    try { await loadScript(src); } catch (e) { /* try next location */ }
+  }
+  if (!window.IFC_MODEL_B64) throw new Error('model-data.js not found');
+  setOverlay(null, 'Decoding model', 0.2); await sleep(10);
+  const bin = atob(window.IFC_MODEL_B64), u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  const name = window.IFC_MODEL_NAME || DEFAULT_FILE;
+  window.IFC_MODEL_B64 = null;
+  return { data: u8, name };
+}
+
+async function fetchWithProgress(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const total = +res.headers.get('content-length') || 0;
+  const reader = res.body.getReader();
+  const chunks = []; let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value); got += value.length;
+    setOverlay('Loading model…', `Downloading ${(got / 1048576).toFixed(1)} MB` + (total ? ` of ${(total / 1048576).toFixed(1)} MB` : ''), total ? 0.05 + 0.2 * got / total : 0.1);
+  }
+  const out = new Uint8Array(got); let o = 0;
+  for (const c of chunks) { out.set(c, o); o += c.length; }
+  return out;
+}
+
+function unzipIfNeeded(data, name) {
+  if (data[0] === 0x50 && data[1] === 0x4b) {           // PK zip
+    const files = unzipSync(data);
+    const key = Object.keys(files).find(k => k.toLowerCase().endsWith('.ifc'));
+    if (!key) throw new Error('No .ifc inside zip');
+    return { data: files[key], name: key };
+  }
+  return { data, name };
+}
+
+async function loadBuffer(raw, name) {
+  await ensureIfc();
+  clearModel();
+  META = null; sceneSchedule = null;
+  const z = unzipIfNeeded(raw, name);
+  document.title = z.name + ' · 3D Digital Twin';
+  setOverlay('Loading model…', 'Parsing IFC', 0.27); await sleep(30);
+  modelID = ifc.OpenModel(z.data, { COORDINATE_TO_ORIGIN: false, CIRCLE_SEGMENTS: 12 });
+  readGeoref();
+  setOverlay(null, 'Reading spatial structure', 0.3); await sleep(20);
+  buildSpatial();
+  // stream geometry type by type so progress can update
+  const typeCounts = new Map();
+  for (const [eid] of elementsContainer) {
+    const t = ifc.GetLineType(modelID, eid);
+    typeCounts.set(t, (typeCounts.get(t) || 0) + 1);
+  }
+  const types = [...typeCounts.keys()];
+  const total = elementsContainer.size || 1; let done = 0;
+  const placements = [];
+  for (const t of types) {
+    setOverlay(null, `Generating geometry: ${prettyType(ifc.GetNameFromTypeCode(t))} (${typeCounts.get(t)})`, 0.32 + 0.55 * done / total);
+    await sleep(10);
+    ifc.StreamAllMeshesWithTypes(modelID, [t], (flat) => collectMesh(flat, placements));
+    done += typeCounts.get(t);
+  }
+  setOverlay(null, 'Building scene', 0.9); await sleep(10);
+  buildScene(placements);
+  placements.length = 0;
+  await finishLoad();
+}
+
+// ---- prepared 3D package (export_scene.py): pre-tessellated, shared geometry, metadata + schedule
+async function loadScene(compressed, name) {
+  clearModel();
+  setOverlay('Loading model…', 'Unpacking the 3D package', 0.35); await sleep(10);
+  const ab = await new Response(new Blob([compressed]).stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer();
+  const hl = new DataView(ab).getUint32(0, true);
+  const H = JSON.parse(new TextDecoder().decode(new Uint8Array(ab, 4, hl)));
+  const base = 4 + hl;
+  const TA = { '<f4': Float32Array, '<u2': Uint16Array, '<u4': Uint32Array, '|i1': Int8Array, '|u1': Uint8Array };
+  const buf = (k) => { const b = H.buffers[k]; return new TA[b.dtype](ab, base + b.offset, b.count); };
+  // metadata
+  META = new Map();
+  for (const e of H.elements) META.set(e[0], { guid: e[1], cls: e[2], name: e[3], tag: e[4], otype: e[5], ptype: e[6], desc: e[7], container: e[8], type: e[9], ps: e[10] });
+  META_PSETS = H.psets; META_TYPES = H.types;
+  if (H.name) document.title = H.name + ' · 3D Digital Twin';       // the model names the page: one viewer, every project
+  for (const n of H.spatial) {
+    spatial.nodes.set(n.id, { id: n.id, type: n.cls, name: n.name, kids: n.kids, elems: n.elems, parent: n.parent });
+    for (const e of n.elems) elementsContainer.set(e, n.id);
+  }
+  spatial.root = H.root;
+  E0 = H.georef.E0; N0 = H.georef.N0; crsName = H.georef.crs || '';
+  // statuses, dates, weights and delays are the KPI_Green dashboard's rows (schedule.json next to this page)
+  try { const r = await fetch('schedule.json', { cache: 'no-store' }); sceneSchedule = r.ok ? await r.json() : null; } catch (e) { sceneSchedule = null; }
+  // geometry
+  setOverlay(null, 'Building 3D geometry', 0.5); await sleep(10);
+  const col = new THREE.Color();
+  H.geos.forEach((g, i) => {
+    const q = buf(g.p), n8 = buf(g.n), c8 = buf(g.c), ix = buf(g.i), nv = q.length / 3;
+    const pos = new Float32Array(nv * 3), nrm = new Float32Array(nv * 3), cl = new Float32Array(nv * 3);
+    for (let k = 0; k < nv; k++) for (let a = 0; a < 3; a++) {
+      pos[k * 3 + a] = g.lo[a] + q[k * 3 + a] / 65535 * g.ext[a];
+      nrm[k * 3 + a] = n8[k * 3 + a] / 127;
+    }
+    for (let k = 0; k < nv; k++) { col.setRGB(c8[k * 3] / 255, c8[k * 3 + 1] / 255, c8[k * 3 + 2] / 255, THREE.SRGBColorSpace); cl[k * 3] = col.r; cl[k * 3 + 1] = col.g; cl[k * 3 + 2] = col.b; }
+    geoCache.set('g' + i, { id: 'g' + i, pos, nrm, col: cl, idx: Uint32Array.from(ix), uv: null, items: 1, alpha: g.a });
+  });
+  const ipid = buf(H.inst.pid), igid = buf(H.inst.gid), im = buf(H.inst.m);
+  const placements = [], catCache = new Map();
+  for (let k = 0; k < ipid.length; k++) {
+    const pid = ipid[k], g = geoCache.get('g' + igid[k]), r = im.subarray(k * 12, k * 12 + 12);
+    if (!catCache.has(pid)) catCache.set(pid, categoryOf(pid));
+    const cat = catCache.get(pid);
+    if (cat === 'pv' && !g.uv) { g.uv = pvUVComposite(g); g.items = g.idx.length / 3 > 200 ? 56 : 1; }
+    // row-major 3x4 -> column-major 4x4
+    const m = new Float32Array([r[0], r[4], r[8], 0, r[1], r[5], r[9], 0, r[2], r[6], r[10], 0, r[3], r[7], r[11], 1]);
+    placements.push({ eid: pid, gid: g.id, m, c: [1, 1, 1, g.alpha], cat });
+  }
+  setOverlay(null, 'Building scene', 0.75); await sleep(10);
+  buildScene(placements);
+  buildStrips(H, buf);
+  buildLines(H, buf);
+  await finishLoad();
+}
+let sceneSchedule = null;
+// indicative tracker rows of the other plots: one textured quad per row (IFC z-up -> three y-up)
+function buildStrips(H, buf) {
+  if (H.strips.rows == null) return;
+  const rows = buf(H.strips.rows);
+  const c = new THREE.Color().setRGB(...(H.stripColor || [0.11, 0.25, 0.6]), THREE.SRGBColorSpace);
+  const total = rows.length / 6;
+  const pos = new Float32Array(total * 12), nrm = new Float32Array(total * 12), colr = new Float32Array(total * 12), uv = new Float32Array(total * 8), eidA = new Float32Array(total * 4), idx = new Uint32Array(total * 6);
+  let r = 0;
+  const mesh = new THREE.Mesh(new THREE.BufferGeometry(), getMat('pv', true, false));
+  H.strips.pid.forEach((pid, k) => {
+    const start = H.strips.start[k], count = H.strips.count[k];
+    elem(pid).parts.push({ mesh, start: start * 4, count: count * 4, cat: 'pv' });
+    for (let j = start; j < start + count; j++, r++) {
+      const x = rows[j * 6], y = rows[j * 6 + 1], z = rows[j * 6 + 2], W = rows[j * 6 + 3], L = rows[j * 6 + 4], D = rows[j * 6 + 5];
+      const x0 = x - W / 2, x1 = x + W / 2, y0 = y - L / 2, y1 = y + L / 2, top = z + D, U = L / 1.154;
+      const P = [[x0, top, -y0], [x1, top, -y0], [x1, top, -y1], [x0, top, -y1]], T = [[0, 0], [0, 1], [U, 1], [U, 0]];
+      for (let v = 0; v < 4; v++) {
+        pos.set(P[v], (r * 4 + v) * 3); nrm.set([0, 1, 0], (r * 4 + v) * 3); colr.set([c.r, c.g, c.b], (r * 4 + v) * 3);
+        uv.set(T[v], (r * 4 + v) * 2); eidA[r * 4 + v] = pid;
+      }
+      idx.set([r * 4, r * 4 + 1, r * 4 + 2, r * 4, r * 4 + 2, r * 4 + 3], r * 6);
+    }
+  });
+  const geo = mesh.geometry;
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colr, 3)); geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geo.setAttribute('eid', new THREE.BufferAttribute(eidA, 1)); geo.setIndex(new THREE.BufferAttribute(idx, 1));
+  geo.computeBoundingSphere(); geo.computeBoundingBox();
+  mesh.userData = { kind: 'merged', pos0: pos.slice(0), col0: colr.slice(0), cat: 'pv', trans: false };
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  modelRoot.add(mesh); meshes.push(mesh);
+}
+// 400 kV conductors as lines
+function buildLines(H, buf) {
+  if (H.lines.segs == null) return;
+  const s = buf(H.lines.segs), pos = new Float32Array(s.length);
+  for (let i = 0; i < s.length; i += 3) { pos[i] = s[i]; pos[i + 1] = s[i + 2]; pos[i + 2] = -s[i + 1]; }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const lines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x3a3d42 }));
+  modelRoot.add(lines);
+  for (const pid of H.lines.pid) elem(pid);
+}
+// UVs for a fused PV composite: each triangle is mapped to the module it belongs to (regular module grid with 20 mm gaps)
+function pvUVComposite(g) {
+  const P = g.pos, I = g.idx, nv = P.length / 3;
+  const acc = new Map(); const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), cr = new THREE.Vector3();
+  for (let i = 0; i < I.length; i += 3) {
+    a.fromArray(P, I[i] * 3); b.fromArray(P, I[i + 1] * 3); c.fromArray(P, I[i + 2] * 3);
+    cr.subVectors(b, a).cross(c.sub(a)); const ar = cr.length(); if (ar < 1e-9) continue;
+    cr.divideScalar(ar); if (cr.x + cr.y + cr.z < 0) cr.negate();
+    const k = cr.x.toFixed(2) + ',' + cr.y.toFixed(2) + ',' + cr.z.toFixed(2);
+    const e = acc.get(k) || { n: cr.clone(), area: 0 }; e.area += ar; acc.set(k, e);
+  }
+  const n = [...acc.values()].sort((p, q) => q.area - p.area)[0].n;
+  const t = Math.abs(n.x) > 0.9 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(1, 0, 0);
+  t.addScaledVector(n, -t.dot(n)).normalize();
+  const bb = new THREE.Vector3().crossVectors(n, t);
+  let s0 = Infinity, s1 = -Infinity, r0 = Infinity, r1 = -Infinity; const v = new THREE.Vector3();
+  for (let i = 0; i < nv; i++) { v.fromArray(P, i * 3); const s = v.dot(t), r = v.dot(bb); s0 = Math.min(s0, s); s1 = Math.max(s1, s); r0 = Math.min(r0, r); r1 = Math.max(r1, r); }
+  const Ls = s1 - s0, Lr = r1 - r0;
+  // portrait modules: short side (1134 mm, pitch 1154) along t, long side (2384 mm, pitch 2404) up-slope
+  let sW = 1.134, sP = 1.154, rW = 2.384, rP = 2.404, swap = false;
+  if (Ls > 2.2 && Ls < 2.6 && Lr > 3.5) { swap = true; sW = 2.384; sP = 2.404; rW = 1.134; rP = 1.154; }
+  const uv = new Float32Array(nv * 2).fill(0.005);
+  const ctr = new THREE.Vector3(), fn = new THREE.Vector3();
+  for (let i = 0; i < I.length; i += 3) {
+    a.fromArray(P, I[i] * 3); b.fromArray(P, I[i + 1] * 3); c.fromArray(P, I[i + 2] * 3);
+    fn.subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a)).normalize();
+    if (Math.abs(fn.dot(n)) < 0.8) continue;                       // module edges keep the frame colour
+    ctr.copy(a).add(b).add(c).divideScalar(3);
+    const ks = Math.floor((ctr.dot(t) - s0) / sP), kr = Math.floor((ctr.dot(bb) - r0) / rP);
+    for (const vi of [I[i], I[i + 1], I[i + 2]]) {
+      v.fromArray(P, vi * 3);
+      const s = THREE.MathUtils.clamp((v.dot(t) - s0 - ks * sP) / sW, 0, 1), r = THREE.MathUtils.clamp((v.dot(bb) - r0 - kr * rP) / rW, 0, 1);
+      uv[vi * 2] = swap ? r : s; uv[vi * 2 + 1] = swap ? s : r;
+    }
+  }
+  return uv;
+}
+
+async function finishLoad() {
+  applyEnvironment();
+  setOverlay(null, 'Linking schedule activities', 0.93); await sleep(10);
+  const hasSched = readSchedule();
+  if (hasSched) buildScheduleUI();
+  else { $('tabSched').style.display = 'none'; $('optStatus').disabled = true; }
+  // Every model opens on IFC material colours with the Model tree tab active
+  applyColorMode('ifc');
+  document.querySelector('.tabs button[data-t="tree"]').click();
+  setOverlay(null, 'Placing labels', 0.95); await sleep(10);
+  buildTags();
+  buildTreeUI(); buildFilterUI(); buildViewsMenu();
+  fitAll();
+  hideOverlay();
+}
+
+function clearModel() {
+  for (const m of meshes) { m.geometry.dispose(); }
+  modelRoot.clear(); meshes.length = 0; geoCache.clear(); elements.clear(); selected.clear();
+  spatial.nodes.clear(); spatial.root = null; nameCache.clear(); elementsContainer.clear(); typeNameCache.clear(); legendMap.clear();
+  uvCache.clear(); tagList.length = 0; lodFar = null; compCache.clear(); sceneRadius.v = null;
+  hiddenBy4D.clear(); sched.tasks = []; sched.byId.clear(); sched.elemTasks.clear(); sched.wp = ''; sched.built = false;
+  if (modelID >= 0) { try { ifc.CloseModel(modelID); } catch (e) {} modelID = -1; }
+  clearHighlight(); focusActive = false; tlReset(); cmpDispose();
+  $('treeRoot').innerHTML = '';
+}
+
+function readGeoref() {
+  E0 = 0; N0 = 0; crsName = '';
+  try {
+    const ids = ifc.GetLineIDsWithType(modelID, WebIFC.IFCMAPCONVERSION);
+    if (ids.size()) {
+      const mc = ifc.GetLine(modelID, ids.get(0));
+      E0 = mc.Eastings?.value || 0; N0 = mc.Northings?.value || 0;
+      const crs = ifc.GetLine(modelID, mc.TargetCRS.value);
+      crsName = crs?.Name?.value || '';
+    }
+  } catch (e) { /* no georef */ }
+}
+
+// ---------------------------------------------------------------- spatial structure
+const elementsContainer = new Map();    // element id -> spatial node id
+function lineName(id) {
+  if (nameCache.has(id)) return nameCache.get(id);
+  let n = '';
+  if (META) { const m = META.get(id); n = m ? (m.name || m.tag) : (spatial.nodes.get(id)?.name || ''); nameCache.set(id, n); return n; }
+  try { const l = ifc.GetLine(modelID, id); n = l.Name?.value || l.LongName?.value || l.Tag?.value || ''; } catch (e) {}
+  nameCache.set(id, n);
+  return n;
+}
+function buildSpatial() {
+  const node = (id) => {
+    if (!spatial.nodes.has(id)) spatial.nodes.set(id, { id, type: ifc.GetNameFromTypeCode(ifc.GetLineType(modelID, id)), name: lineName(id), kids: [], elems: [], parent: null });
+    return spatial.nodes.get(id);
+  };
+  const agg = ifc.GetLineIDsWithType(modelID, WebIFC.IFCRELAGGREGATES);
+  for (let i = 0; i < agg.size(); i++) {
+    const r = ifc.GetLine(modelID, agg.get(i));
+    const p = node(r.RelatingObject.value);
+    for (const o of r.RelatedObjects) { const k = node(o.value); k.parent = p.id; p.kids.push(k.id); }
+  }
+  const con = ifc.GetLineIDsWithType(modelID, WebIFC.IFCRELCONTAINEDINSPATIALSTRUCTURE);
+  for (let i = 0; i < con.size(); i++) {
+    const r = ifc.GetLine(modelID, con.get(i));
+    const p = node(r.RelatingStructure.value);
+    for (const o of r.RelatedElements) { p.elems.push(o.value); elementsContainer.set(o.value, p.id); }
+  }
+  const proj = ifc.GetLineIDsWithType(modelID, WebIFC.IFCPROJECT);
+  spatial.root = proj.size() ? node(proj.get(0)).id : null;
+}
+
+// ---------------------------------------------------------------- geometry
+function getGeo(gid) {
+  let g = geoCache.get(gid);
+  if (g) return g;
+  const geom = ifc.GetGeometry(modelID, gid);
+  const v = ifc.GetVertexArray(geom.GetVertexData(), geom.GetVertexDataSize());
+  const idx = ifc.GetIndexArray(geom.GetIndexData(), geom.GetIndexDataSize());
+  geom.delete();
+  const n = v.length / 6;
+  const pos = new Float32Array(n * 3), nrm = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    pos[i*3] = v[i*6]; pos[i*3+1] = v[i*6+1]; pos[i*3+2] = v[i*6+2];
+    nrm[i*3] = v[i*6+3]; nrm[i*3+1] = v[i*6+4]; nrm[i*3+2] = v[i*6+5];
+  }
+  g = { pos, nrm, idx, uses: 0 };
+  geoCache.set(gid, g);
+  return g;
+}
+// An element's items that share one placement are fused into a "composite" geometry (e.g. a table's 56 modules),
+// so every table becomes one instance instead of 56+ - far fewer draw items, same per-module detail.
+const compCache = new Map();
+let compSeq = 0;
+function collectMesh(flat, placements) {
+  const eid = flat.expressID;
+  const n = flat.geometries.size();
+  // web-ifc gives each item its own matrix; express every item relative to the element's first item
+  const groups = new Map();
+  for (let i = 0; i < n; i++) {
+    const pg = flat.geometries.get(i);
+    const g = getGeo(pg.geometryExpressID);
+    if (!g.idx.length) continue;
+    const trans = pg.color.w < 0.99;
+    let gr = groups.get(trans);
+    if (!gr) groups.set(trans, gr = { m: new Float32Array(pg.flatTransformation), inv: null, trans, items: [] });
+    if (!gr.inv) gr.inv = new THREE.Matrix4().fromArray(gr.m).invert();
+    const rel = new THREE.Matrix4().fromArray(pg.flatTransformation).premultiply(gr.inv);
+    gr.items.push([pg.geometryExpressID, pg.color.x, pg.color.y, pg.color.z, rel]);
+  }
+  if (!groups.size) return;
+  const cat = categoryOf(eid);
+  for (const gr of groups.values()) {
+    const ckey = cat + '|' + gr.items.map(it => it[0] + ':' + it[1].toFixed(3) + ',' + it[2].toFixed(3) + ',' + it[3].toFixed(3) + '@' +
+      it[4].elements.map(v => (Math.abs(v) < 5e-4 ? 0 : v).toFixed(3)).join(',')).join(';');
+    let cg = compCache.get(ckey);
+    if (!cg) { cg = buildComposite(gr.items, cat); compCache.set(ckey, cg); geoCache.set(cg.id, cg); }
+    placements.push({ eid, gid: cg.id, m: gr.m, c: [1, 1, 1, gr.trans ? 0.5 : 1], cat });
+  }
+}
+function buildComposite(items, cat) {
+  let nv = 0, ni = 0;
+  for (const it of items) { const g = geoCache.get(it[0]); nv += g.pos.length / 3; ni += g.idx.length; }
+  const pos = new Float32Array(nv * 3), nrm = new Float32Array(nv * 3), col = new Float32Array(nv * 3), idx = new Uint32Array(ni);
+  const uv = cat === 'pv' ? new Float32Array(nv * 2) : null;
+  const c = new THREE.Color(), v = new THREE.Vector3(), n3 = new THREE.Matrix3();
+  let vo = 0, io = 0;
+  for (const it of items) {
+    const g = geoCache.get(it[0]), cnt = g.pos.length / 3, rel = it[4];
+    n3.getNormalMatrix(rel);
+    for (let i = 0; i < cnt; i++) {
+      v.fromArray(g.pos, i * 3).applyMatrix4(rel); v.toArray(pos, (vo + i) * 3);
+      v.fromArray(g.nrm, i * 3).applyMatrix3(n3).normalize(); v.toArray(nrm, (vo + i) * 3);
+    }
+    c.setRGB(it[1], it[2], it[3], THREE.SRGBColorSpace);
+    for (let i = 0; i < cnt; i++) { col[(vo + i) * 3] = c.r; col[(vo + i) * 3 + 1] = c.g; col[(vo + i) * 3 + 2] = c.b; }
+    if (uv) uv.set(pvUV(it[0]), vo * 2);
+    for (let i = 0; i < g.idx.length; i++) idx[io + i] = g.idx[i] + vo;
+    vo += cnt; io += g.idx.length;
+  }
+  return { id: 'c' + (compSeq++), pos, nrm, col, idx, uv, items: items.length, firstItem: items[0][0] };
+}
+// one thin textured slab per PV table, used beyond ~700 m (keeps the module grid look at a fraction of the cost)
+function pvLodGeometry(cg) {
+  const g0 = cg.firstItem != null ? geoCache.get(cg.firstItem) : cg, P = cg.pos;
+  // module plane basis from the first module item
+  const a = new THREE.Vector3().fromArray(g0.pos, g0.idx[0] * 3), b = new THREE.Vector3().fromArray(g0.pos, g0.idx[1] * 3), c = new THREE.Vector3().fromArray(g0.pos, g0.idx[2] * 3);
+  let n = new THREE.Vector3().subVectors(b, a).cross(c.sub(a)).normalize();
+  // pick the dominant face normal properly via pvUV's logic: largest-area direction of the first item
+  { const acc = new Map(), I = g0.idx, Q = g0.pos, A = new THREE.Vector3(), B = new THREE.Vector3(), Cc = new THREE.Vector3(), cr = new THREE.Vector3();
+    for (let i = 0; i < I.length; i += 3) { A.fromArray(Q, I[i] * 3); B.fromArray(Q, I[i + 1] * 3); Cc.fromArray(Q, I[i + 2] * 3);
+      cr.subVectors(B, A).cross(Cc.sub(A)); const ar = cr.length(); if (ar < 1e-9) continue; cr.divideScalar(ar); if (cr.x + cr.y + cr.z < 0) cr.negate();
+      const k = cr.x.toFixed(2) + ',' + cr.y.toFixed(2) + ',' + cr.z.toFixed(2); const e = acc.get(k) || { n: cr.clone(), area: 0 }; e.area += ar; acc.set(k, e); }
+    n = [...acc.values()].sort((p, q) => q.area - p.area)[0].n; }
+  const t = Math.abs(n.x) > 0.9 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(1, 0, 0);
+  t.addScaledVector(n, -t.dot(n)).normalize();
+  const bb = new THREE.Vector3().crossVectors(n, t);
+  let s0 = Infinity, s1 = -Infinity, r0 = Infinity, r1 = -Infinity, h0 = Infinity, h1 = -Infinity; const v = new THREE.Vector3();
+  for (let i = 0; i < P.length / 3; i++) { v.fromArray(P, i * 3); const s = v.dot(t), r = v.dot(bb), h = v.dot(n);
+    s0 = Math.min(s0, s); s1 = Math.max(s1, s); r0 = Math.min(r0, r); r1 = Math.max(r1, r); h0 = Math.min(h0, h); h1 = Math.max(h1, h); }
+  const corner = (s, r, h) => new THREE.Vector3().addScaledVector(t, s).addScaledVector(bb, r).addScaledVector(n, h);
+  const pos = [], nor = [], uvs = [], ind = [];
+  const quad = (p0, p1, p2, p3, nn, uvq) => { const o = pos.length / 3; for (const p of [p0, p1, p2, p3]) { pos.push(p.x, p.y, p.z); nor.push(nn.x, nn.y, nn.z); } uvs.push(...uvq); ind.push(o, o + 1, o + 2, o, o + 2, o + 3); };
+  const U = (s1 - s0) / 1.154, V = (r1 - r0) / 2.394;              // module pitch along the row / module length up-slope
+  quad(corner(s0, r0, h1), corner(s1, r0, h1), corner(s1, r1, h1), corner(s0, r1, h1), n, [0, 0, U, 0, U, V, 0, V]);
+  quad(corner(s0, r1, h0), corner(s1, r1, h0), corner(s1, r0, h0), corner(s0, r0, h0), n.clone().negate(), [0, 0, 0, 0, 0, 0, 0, 0]);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(ind);
+  return geo;
+}
+
+// ---------------------------------------------------------------- procedural textures
+const maxAniso = renderer.capabilities.getMaxAnisotropy();
+function canvasTex(c, repeat = true) {
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = maxAniso;
+  t.wrapS = t.wrapT = repeat ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
+  t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter;
+  return t;
+}
+// one PV module (portrait, 1134 x 2384 mm): aluminium frame, white backsheet gaps, 6 x 22 half-cut mono cells with busbars
+function makeModuleTexture() {
+  const W = 256, H = 538, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.fillStyle = '#c9cdd3'; g.fillRect(0, 0, W, H);
+  const f = 7; g.fillStyle = '#eef1f5'; g.fillRect(f, f, W - 2 * f, H - 2 * f);
+  const cols = 6, rows = 22, gap = 2.4, mid = 6;
+  const cw = (W - 2 * f - gap * (cols + 1)) / cols, ch = (H - 2 * f - gap * (rows + 1) - mid) / rows;
+  for (let r = 0; r < rows; r++) for (let k = 0; k < cols; k++) {
+    const x = f + gap + k * (cw + gap), y = f + gap + r * (ch + gap) + (r >= rows / 2 ? mid : 0);
+    const shade = 0.92 + 0.08 * Math.random();
+    const gr = g.createLinearGradient(x, y, x + cw, y + ch);
+    gr.addColorStop(0, `rgb(${Math.round(18 * shade)},${Math.round(72 * shade)},${Math.round(205 * shade)})`);
+    gr.addColorStop(1, `rgb(${Math.round(8 * shade)},${Math.round(46 * shade)},${Math.round(160 * shade)})`);
+    g.fillStyle = gr; g.fillRect(x, y, cw, ch);
+    g.fillStyle = 'rgba(190,205,235,0.35)';
+    for (let b = 1; b <= 3; b++) g.fillRect(x + (cw * b) / 4 - 0.4, y, 0.8, ch);   // busbars
+  }
+  g.fillStyle = 'rgba(255,255,255,0.10)'; g.fillRect(f, f, W - 2 * f, (H - 2 * f) * 0.18);   // glass sheen
+  return canvasTex(c, true);
+}
+function makeNoiseTexture(base, amp, size, streaks) {
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  const g = c.getContext('2d'), img = g.createImageData(size, size);
+  // value noise (3 octaves) + optional wind ripples for sand
+  const rnd = (n) => { const a = new Float32Array(n * n); for (let i = 0; i < a.length; i++) a[i] = Math.random(); return a; };
+  const oct = [[8, 0.5], [32, 0.3], [128, 0.2]].map(([n, w]) => [n, w, rnd(n)]);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    let v = 0;
+    for (const [n, w, a] of oct) {
+      const fx = x / size * n, fy = y / size * n, ix = Math.floor(fx), iy = Math.floor(fy), tx = fx - ix, ty = fy - iy;
+      const q = (i, j) => a[((iy + j) % n) * n + ((ix + i) % n)];
+      v += w * ((q(0, 0) * (1 - tx) + q(1, 0) * tx) * (1 - ty) + (q(0, 1) * (1 - tx) + q(1, 1) * tx) * ty);
+    }
+    if (streaks) v = v * 0.75 + 0.25 * (0.5 + 0.5 * Math.sin((x * 0.9 + y * 0.35 + v * 40) * 0.25));
+    const l = Math.max(0, Math.min(255, (base + (v - 0.5) * amp + (Math.random() - 0.5) * amp * 0.35) * 255));
+    const i = (y * size + x) * 4; img.data[i] = img.data[i + 1] = img.data[i + 2] = l; img.data[i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  return canvasTex(c, true);
+}
+const TEX = { module: makeModuleTexture(), sand: makeNoiseTexture(0.93, 0.22, 512, true), asphalt: makeNoiseTexture(0.9, 0.35, 256, false) };
+TEX.module.wrapT = THREE.ClampToEdgeWrapping;
+TEX.moduleRep = TEX.module.clone(); TEX.moduleRep.wrapS = TEX.moduleRep.wrapT = THREE.RepeatWrapping; TEX.moduleRep.needsUpdate = true;
+
+// ---------------------------------------------------------------- materials (realistic / technical) per category
+const MAT = new Map();
+function getMat(cat, merged, trans) {
+  // colour modes (status / block / class): untextured materials so the data colour reads clearly
+  const flat = colorMode !== 'ifc' && (cat === 'pv' || cat === 'pvlod' || cat === 'std');
+  const key = [realistic ? 'R' : 'T', flat ? 'F' : '', cat, merged ? 'm' : 'i', trans ? 't' : 'o'].join('|');
+  if (MAT.has(key)) return MAT.get(key);
+  if (flat) {
+    const o = { side: THREE.DoubleSide, vertexColors: merged };
+    if (trans) Object.assign(o, { transparent: true, opacity: 0.55, depthWrite: false });
+    const fm = realistic ? new THREE.MeshStandardMaterial({ ...o, roughness: 0.7, metalness: 0, envMapIntensity: 0.35 }) : new THREE.MeshLambertMaterial(o);
+    MAT.set(key, fm); return fm;
+  }
+  // composites carry per-vertex IFC colours; realistic instanced PV ignores them (texture supplies the colour)
+  const vc = cat === 'pvlod' ? false : !(realistic && cat === 'pv' && !merged);
+  const common = { side: THREE.DoubleSide, vertexColors: vc };
+  if (trans) Object.assign(common, { transparent: true, opacity: realistic && cat === 'ground' ? 0.22 : 0.55, depthWrite: false });
+  let m;
+  if (!realistic) m = new THREE.MeshLambertMaterial(cat === 'pvlod' ? { ...common, color: 0x1a3f9e } : common);
+  else if (cat === 'pv') m = new THREE.MeshStandardMaterial({ ...common, map: TEX.module, roughness: 0.38, metalness: 0.0, envMapIntensity: 0.32 });
+  else if (cat === 'pvlod') m = new THREE.MeshStandardMaterial({ ...common, map: TEX.moduleRep, roughness: 0.4, metalness: 0.0, envMapIntensity: 0.32 });
+  else if (cat === 'ground') m = new THREE.MeshStandardMaterial({ ...common, map: TEX.sand, roughness: 1.0, metalness: 0 });
+  else if (cat === 'road') m = new THREE.MeshStandardMaterial({ ...common, map: TEX.asphalt, roughness: 0.92, metalness: 0 });
+  else m = new THREE.MeshStandardMaterial({ ...common, roughness: 0.62, metalness: 0.08, envMapIntensity: 0.6 });
+  MAT.set(key, m);
+  return m;
+}
+function categoryOf(eid) {
+  const t = elementType(eid), n = lineName(eid);
+  if (t === 'IfcSolarDevice') return 'pv';
+  if (t === 'IfcGeographicElement') return 'ground';
+  if (t === 'IfcCivilElement') return /road/i.test(n) ? 'road' : 'ground';
+  if (t === 'IfcSlab' && /pad/i.test(n)) return 'ground';
+  return 'std';
+}
+
+// UVs: PV -> one texture tile per module (rows repeat every module pitch); ground/road -> planar metres
+const uvCache = new Map();
+function pvUV(gid) {
+  if (uvCache.has(gid)) return uvCache.get(gid);
+  const g = geoCache.get(gid), P = g.pos, N = g.nrm, I = g.idx, nv = P.length / 3;
+  // dominant face normal (largest area) = module plane normal
+  const acc = new Map(); const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), cr = new THREE.Vector3();
+  for (let i = 0; i < I.length; i += 3) {
+    a.fromArray(P, I[i] * 3); b.fromArray(P, I[i + 1] * 3); c.fromArray(P, I[i + 2] * 3);
+    cr.subVectors(b, a).cross(c.sub(a)); const ar = cr.length(); if (ar < 1e-9) continue;
+    cr.divideScalar(ar); if (cr.x + cr.y + cr.z < 0) cr.negate();
+    const k = cr.x.toFixed(2) + ',' + cr.y.toFixed(2) + ',' + cr.z.toFixed(2);
+    const e = acc.get(k) || { n: cr.clone(), area: 0 }; e.area += ar; acc.set(k, e);
+  }
+  const n = [...acc.values()].sort((p, q) => q.area - p.area)[0].n;
+  const t = Math.abs(n.x) > 0.9 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(1, 0, 0);
+  t.addScaledVector(n, -t.dot(n)).normalize();
+  const bb = new THREE.Vector3().crossVectors(n, t);
+  let s0 = Infinity, s1 = -Infinity, r0 = Infinity, r1 = -Infinity; const v = new THREE.Vector3();
+  for (let i = 0; i < nv; i++) { v.fromArray(P, i * 3); const s = v.dot(t), r = v.dot(bb); s0 = Math.min(s0, s); s1 = Math.max(s1, s); r0 = Math.min(r0, r); r1 = Math.max(r1, r); }
+  const Ls = s1 - s0, Lr = r1 - r0, uv = new Float32Array(nv * 2);
+  const single = Math.max(Ls, Lr) < 3.5, PITCH = 1.154;
+  for (let i = 0; i < nv; i++) {
+    v.fromArray(P, i * 3);
+    const facing = Math.abs(N[i * 3] * n.x + N[i * 3 + 1] * n.y + N[i * 3 + 2] * n.z) > 0.8;
+    if (!facing) { uv[i * 2] = 0.005; uv[i * 2 + 1] = 0.005; continue; }      // edges -> aluminium frame
+    const s = (v.dot(t) - s0), r = (v.dot(bb) - r0);
+    let longC, shortC, longL, shortL;
+    if (Ls >= Lr) { longC = s; longL = Ls; shortC = r; shortL = Lr; } else { longC = r; longL = Lr; shortC = s; shortL = Ls; }
+    if (single) { uv[i * 2] = shortC / shortL; uv[i * 2 + 1] = longC / longL; }       // module long side along texture V
+    else { uv[i * 2] = longC / PITCH; uv[i * 2 + 1] = shortC / shortL; }             // tracker row: modules across row width, repeating along row
+  }
+  uvCache.set(gid, uv);
+  return uv;
+}
+function planarUV(pos, scale) {
+  // project on the two largest-extent axes (works for Y-up and Z-up local data)
+  const nv = pos.length / 3, mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < nv; i++) for (let k = 0; k < 3; k++) { mn[k] = Math.min(mn[k], pos[i * 3 + k]); mx[k] = Math.max(mx[k], pos[i * 3 + k]); }
+  const ext = [0, 1, 2].map(k => mx[k] - mn[k]); const ax = [0, 1, 2].sort((p, q) => ext[q] - ext[p]).slice(0, 2);
+  const uv = new Float32Array(nv * 2);
+  for (let i = 0; i < nv; i++) { uv[i * 2] = pos[i * 3 + ax[0]] / scale; uv[i * 2 + 1] = pos[i * 3 + ax[1]] / scale; }
+  return uv;
+}
+const UV_SCALE = { ground: 18, road: 5 };
+
+function elem(eid) {
+  let e = elements.get(eid);
+  if (!e) { e = { parts: [], hidden: false, container: elementsContainer.get(eid) }; elements.set(eid, e); }
+  return e;
+}
+
+function buildScene(placements) {
+  const INST_MIN = 12;
+  const byGid = new Map();
+  for (const p of placements) { if (!byGid.has(p.gid)) byGid.set(p.gid, []); byGid.get(p.gid).push(p); }
+  const mergeQueue = new Map();       // "cat|trans" -> placements
+  const TILE = 400, TILE_MIN = 300;
+  for (const [gid, list] of byGid) {
+    const g = geoCache.get(gid);
+    const trans = list.some(p => p.c[3] < 0.99);
+    const c0 = list[0].cat;
+    if (list.length >= INST_MIN) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(g.pos, 3));
+      geo.setAttribute('normal', new THREE.BufferAttribute(g.nrm, 3));
+      geo.setAttribute('color', new THREE.BufferAttribute(g.col, 3));
+      geo.setIndex(new THREE.BufferAttribute(g.idx, 1));
+      if (c0 === 'pv') geo.setAttribute('uv', new THREE.BufferAttribute(g.uv, 2));
+      else if (UV_SCALE[c0]) geo.setAttribute('uv', new THREE.BufferAttribute(planarUV(g.pos, UV_SCALE[c0]), 2));
+      const tris = g.idx.length / 3;
+      let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+      for (let i = 0; i < g.pos.length; i += 3) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], g.pos[i + k]); hi[k] = Math.max(hi[k], g.pos[i + k]); }
+      const diag = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
+      // detail switching: big PV tables get a slab LOD; heavy small parts (piles, structures) are dropped far away
+      const lodGeo = (c0 === 'pv' && g.items >= 8 && list.length >= TILE_MIN) ? pvLodGeometry(g) : null;
+      const small = c0 === 'std' && diag < 36 && list.length >= TILE_MIN;
+      const maxDist = lodGeo ? 750 : small ? (tris > 150 ? 650 : 2500) : Infinity;
+      // spatial tiles so off-screen tables are culled
+      const tiles = new Map();
+      if (list.length >= TILE_MIN) {
+        for (const p of list) { const k = Math.floor(p.m[12] / TILE) + ',' + Math.floor(p.m[14] / TILE); if (!tiles.has(k)) tiles.set(k, []); tiles.get(k).push(p); }
+        const rest = [];                                  // sparse tiles -> one shared batch
+        for (const [k, tl] of tiles) if (tl.length < 40) { rest.push(...tl); tiles.delete(k); }
+        if (rest.length) tiles.set('rest', rest);
+      } else tiles.set('all', list);
+      // heavy small parts (piles) get a low footprint strip far away, so their status still reads at distance
+      const padGeo = (!lodGeo && small && tris > 150) ? footprintGeometry(g, list[0].m) : null;
+      for (const tl of tiles.values()) {
+        addInstanced(geo, tl, c0, trans, maxDist, false);
+        if (lodGeo) addInstanced(lodGeo, tl, c0, trans, 750, true);
+        if (padGeo) addInstanced(padGeo, tl, c0, trans, maxDist, true, 'std');
+      }
+    } else {
+      for (const p of list) {
+        const key = c0 + '|' + (trans ? 1 : 0);
+        if (!mergeQueue.has(key)) mergeQueue.set(key, []);
+        mergeQueue.get(key).push(p);
+      }
+    }
+  }
+  for (const [key, q] of mergeQueue) { const [c, t] = key.split('|'); buildMerged(q, t === '1', c); }
+}
+const _im4 = new THREE.Matrix4();
+// flat 0.3 m strip over a composite's footprint (local "up" = the axis that maps to world Y)
+function footprintGeometry(g, m0) {
+  const e = m0, ups = [Math.abs(e[1]), Math.abs(e[5]), Math.abs(e[9])];
+  const k = ups.indexOf(Math.max(...ups));
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < g.pos.length; i += 3) for (let a = 0; a < 3; a++) { lo[a] = Math.min(lo[a], g.pos[i + a]); hi[a] = Math.max(hi[a], g.pos[i + a]); }
+  const size = [0, 1, 2].map(a => Math.max(hi[a] - lo[a], 0.3)); size[k] = 0.3;
+  const ctr = [0, 1, 2].map(a => (lo[a] + hi[a]) / 2);
+  ctr[k] = (e[[1, 5, 9][k]] > 0 ? lo[k] : hi[k]) + (e[[1, 5, 9][k]] > 0 ? 0.15 : -0.15);
+  const box = new THREE.BoxGeometry(size[0], size[1], size[2]).translate(ctr[0], ctr[1], ctr[2]);
+  const n = box.attributes.position.count, col = new Float32Array(n * 3);
+  const c = new THREE.Color(0x9a9da2); for (let i = 0; i < n; i++) c.toArray(col, i * 3);
+  box.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return box;
+}
+function addInstanced(geo, list, cat, trans, dist, isLod, lodCat = 'pvlod') {
+  const mcat = isLod ? lodCat : cat;
+  const im = new THREE.InstancedMesh(geo, getMat(mcat, false, trans), list.length);
+  im.userData = { kind: 'inst', eids: new Int32Array(list.length), base: [], cat: mcat, trans, lodRole: isLod ? 'far' : (dist < Infinity ? 'near' : null), lodDist: dist };
+  list.forEach((p, i) => {
+    _im4.fromArray(p.m); im.setMatrixAt(i, _im4); im.setColorAt(i, tmpCol.setRGB(1, 1, 1));
+    im.userData.eids[i] = p.eid; im.userData.base.push(p.m);
+    elem(p.eid).parts.push({ mesh: im, i, cat: cat });
+  });
+  im.instanceMatrix.needsUpdate = true; im.instanceColor.needsUpdate = true;
+  im.computeBoundingSphere(); im.frustumCulled = true;
+  im.castShadow = !trans && cat !== 'ground' && cat !== 'road'; im.receiveShadow = true;
+  modelRoot.add(im); meshes.push(im);
+}
+
+function buildMerged(list, trans, cat = 'std') {
+  const MAXV = 1500000;
+  let start = 0;
+  while (start < list.length) {
+    let nv = 0, ni = 0, end = start;
+    while (end < list.length) {
+      const g = geoCache.get(list[end].gid);
+      if (nv && nv + g.pos.length / 3 > MAXV) break;
+      nv += g.pos.length / 3; ni += g.idx.length; end++;
+    }
+    const pos = new Float32Array(nv * 3), nrm = new Float32Array(nv * 3), colr = new Float32Array(nv * 3), eidA = new Float32Array(nv);
+    const uvs = (cat === 'pv' || UV_SCALE[cat]) ? new Float32Array(nv * 2) : null;
+    const idx = new Uint32Array(ni);
+    const m4 = new THREE.Matrix4(), n3 = new THREE.Matrix3(), v = new THREE.Vector3();
+    let vo = 0, io = 0;
+    const mesh = new THREE.Mesh(new THREE.BufferGeometry(), getMat(cat, true, trans));
+    for (let k = start; k < end; k++) {
+      const p = list[k], g = geoCache.get(p.gid);
+      m4.fromArray(p.m); n3.getNormalMatrix(m4);
+      const cnt = g.pos.length / 3;
+      colr.set(g.col, vo * 3);
+      if (cat === 'pv') uvs.set(g.uv, vo * 2);
+      for (let i = 0; i < cnt; i++) {
+        v.set(g.pos[i*3], g.pos[i*3+1], g.pos[i*3+2]).applyMatrix4(m4);
+        pos[(vo+i)*3] = v.x; pos[(vo+i)*3+1] = v.y; pos[(vo+i)*3+2] = v.z;
+        if (uvs && cat !== 'pv') { uvs[(vo+i)*2] = v.x / UV_SCALE[cat]; uvs[(vo+i)*2+1] = v.z / UV_SCALE[cat]; }
+        v.set(g.nrm[i*3], g.nrm[i*3+1], g.nrm[i*3+2]).applyMatrix3(n3).normalize();
+        nrm[(vo+i)*3] = v.x; nrm[(vo+i)*3+1] = v.y; nrm[(vo+i)*3+2] = v.z;
+        eidA[vo+i] = p.eid;
+      }
+      for (let i = 0; i < g.idx.length; i++) idx[io+i] = g.idx[i] + vo;
+      elem(p.eid).parts.push({ mesh, start: vo, count: cnt, istart: io, icount: g.idx.length, cat });
+      vo += cnt; io += g.idx.length;
+    }
+    const geo = mesh.geometry;
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(colr, 3));
+    geo.setAttribute('eid', new THREE.BufferAttribute(eidA, 1));
+    if (uvs) geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    geo.setIndex(new THREE.BufferAttribute(idx, 1));
+    geo.computeBoundingSphere(); geo.computeBoundingBox();
+    mesh.userData = { kind: 'merged', pos0: pos.slice(0), col0: colr.slice(0), cat, trans };
+    mesh.castShadow = !trans && cat !== 'ground' && cat !== 'road'; mesh.receiveShadow = true;
+    modelRoot.add(mesh); meshes.push(mesh);
+    start = end;
+  }
+}
+
+// ---------------------------------------------------------------- realistic mode
+function setRealistic(on) {
+  realistic = on;
+  for (const m of meshes) m.material = getMat(m.userData.cat, m.userData.kind === 'merged', m.userData.trans);
+  applyEnvironment();
+  for (const eid of elements.keys()) repaintElement(eid);
+  if (focusActive) refreshFocus();
+  if (cmp.on) cmpMaterials();
+  $('bReal').classList.toggle('on', on); $('bShadow').disabled = !on;
+  needsRender = true;
+}
+// ---------------------------------------------------------------- 3D labels (level-of-detail, de-cluttered)
+const tagLayer = document.createElement('div'); tagLayer.id = 'tags'; view.appendChild(tagLayer);
+function quickBox(eid) {
+  // sample a few parts (tables have 56 module parts) for a fast, good-enough element box
+  const e = elements.get(eid); if (!e || !e.parts.length) return null;
+  const P = e.parts, box = new THREE.Box3();
+  const pick = P.length <= 6 ? P : [P[0], P[1], P[P.length >> 1], P[P.length - 2], P[P.length - 1]];
+  for (const p of pick) box.union(partBox(p, _b2));
+  return box;
+}
+// [name pattern, label, spacing between labels (m), visible up to (m)]
+const ROAD_LABELS = [
+  [/^S6a Internal Roads/, 'Internal road', 320, 2600],
+  [/^S6a Approach Roads/, 'Approach road', 160, 2600],
+  [/^S6a Peripheral Plant Road/, 'Peripheral plant road', 700, 4000],
+  [/^WTG Access Roads/, 'WTG access road', 700, 2600],
+];
+function roadLabelPoints(eid, spacing) {
+  const pts = [], s2 = spacing * spacing, v = new THREE.Vector3();
+  for (const p of elements.get(eid).parts) {
+    if (p.mesh.userData.kind !== 'merged') continue;
+    const P = p.mesh.userData.pos0;
+    for (let i = p.start; i < p.start + p.count; i += 2) {
+      v.set(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]);
+      if (pts.every(q => q.distanceToSquared(v) > s2)) pts.push(v.clone());
+      if (pts.length >= 40) return pts;
+    }
+  }
+  return pts;
+}
+function buildTags() {
+  tagList.length = 0;
+  const groups = new Map();           // key -> {text, lvl, maxDist, eids, box}
+  const add = (key, text, lvl, maxDist, eid, box) => {
+    let g = groups.get(key);
+    if (!g) { g = { text, lvl, maxDist, eids: [], box: new THREE.Box3() }; groups.set(key, g); }
+    g.eids.push(eid); g.box.union(box);
+  };
+  const short = (s, n = 42) => s.length > n ? s.slice(0, n - 1) + '…' : s;
+  for (const eid of elements.keys()) {
+    const t = elementType(eid), name = lineName(eid), tag = tagOf(eid);
+    const box = quickBox(eid); if (!box || box.isEmpty()) continue;
+    const size = box.getSize(_v), diag = Math.hypot(size.x, size.z);
+    let m;
+    if (/^S6a-B(\d+)-T(\d+)$/.test(tag)) { m = tag.match(/^S6a-B(\d+)-T(\d+)$/); add('tab:' + tag, `B${m[1]}-T${m[2]}`, 3, 170, eid, box); continue; }
+    if ((m = tag.match(/^S6a-B(\d+)-INV(\d+)$/))) { add('inv:' + tag, `INV-${m[2]} · B${m[1]}`, 2, 420, eid, box); continue; }
+    if ((m = tag.match(/^S6a-ICR-(\d+)$/))) {
+      add('icr:' + tag, `ICR-${m[1]} · IDT 13.75 MVA`, 1, 7000, eid, box);
+      add('icrp:' + eid, short(name.replace(/^S6a-ICR-\d+\s*/, '')), 2, 140, eid, box);
+      continue;
+    }
+    if (/rotor/i.test(name)) continue;
+    if (t === 'IfcElectricGenerator') { add('wtg:' + eid, tag || name.split(' ')[0], 2, 6500, eid, box); continue; }
+    if (/^TWR-/.test(tag)) { add('twr:' + eid, tag, 2, 1600, eid, box); continue; }
+    if (t === 'IfcGeographicElement' && /zone|terrain|ground/i.test(name)) continue;
+    const road = t === 'IfcCivilElement' && ROAD_LABELS.find(r => r[0].test(name));
+    if (road) {                                          // roads are long and branched: several labels spread along them
+      roadLabelPoints(eid, road[2]).forEach((v, k) => add(`road:${eid}:${k}`, road[1], 2, road[3], eid, new THREE.Box3(v, v.clone())));
+      continue;
+    }
+    if (diag > 2500) {                                   // very large elements: one label, visible from far
+      if (t === 'IfcSolarDevice') add('big:' + eid, short(name.split(' - ')[0]), 1, 40000, eid, box);
+      continue;
+    }
+    if (/Battery Container|PCS\/MVT Skid/i.test(name)) { const r = name.match(/(Battery Container|PCS\/MVT Skid)\s+(R\d+-\d+)/); add('bess:' + eid, r ? (r[1].startsWith('PCS') ? 'PCS ' : 'BC ') + r[2] : short(name), 3, 110, eid, box); continue; }
+    if (name.includes(' - ')) add('grp:' + name.split(' - ')[0], short(name.split(' - ')[0]), 1, 16000, eid, box);
+    add('el:' + eid, short(name.includes(' - ') ? name.split(' - ').slice(1).join(' - ') : name), 2, Math.max(250, diag * 3), eid, box);
+  }
+  // spatial structure labels: park, plot, ICR blocks, PSS-10, BESS
+  for (const n of spatial.nodes.values()) {
+    if (/project/i.test(n.type)) continue;
+    const ids = descendants(n.id); if (!ids.length) continue;
+    const sample = ids.length > 400 ? ids.filter((_, i) => i % 25 === 0) : ids;
+    const b = boxOf(sample); if (!b) continue;
+    // anchor on the centroid of element centres (robust against long roads stretching the box)
+    const cen = new THREE.Vector3(); let k = 0;
+    for (const id of sample) { const qb = quickBox(id); if (qb && !qb.isEmpty()) { cen.add(qb.getCenter(_v)); k++; } }
+    if (k) { cen.divideScalar(k); const sz = b.getSize(new THREE.Vector3()); b.setFromCenterAndSize(new THREE.Vector3(cen.x, b.getCenter(_v).y, cen.z), sz); }
+    const size = b.getSize(_v), diag = Math.hypot(size.x, size.z);
+    const isSite = /site/i.test(n.type);
+    if (!isSite && diag > 9000) continue;               // spread-out groups (wind farm, TL) are labelled per element
+    let text = n.name || elementType(n.id), lvl = isSite ? 0 : 1, maxDist = isSite ? 120000 : 14000;
+    const blk = text.match(/^Block-(\d+)/);
+    if (blk) { text = withPhase(text, +blk[1]); maxDist = 9000; }
+    groups.set('sp:' + n.id, { text, lvl, maxDist, eids: ids, box: b, spatial: true });
+  }
+  for (const g of groups.values()) {
+    const c = g.box.getCenter(new THREE.Vector3());
+    const sz = g.box.getSize(new THREE.Vector3());
+    c.y = g.box.max.y + (g.lvl === 0 ? 60 + 0.12 * Math.hypot(sz.x, sz.z) : g.lvl === 1 ? (g.spatial ? 25 : 12) : 1.5);
+    tagList.push({ text: g.text, lvl: g.lvl, maxDist: g.maxDist, eids: g.eids, pos: c, el: null });
+  }
+  tagList.sort((a, b) => a.lvl - b.lvl);
+}
+// far-view LOD: thin indicative PV rows alias into moiré from far away -> show their plot ground as solid "array" blue instead
+let lodFar = null;
+const ARRAY_BLUE = [0.05, 0.11, 0.30];
+const _sc = new THREE.Vector3();
+function updateLOD() {
+  // per-tile detail switching
+  for (const m of meshes) {
+    const r = m.userData.lodRole; if (!r) continue;
+    const s = m.boundingSphere; if (!s) continue;
+    const d = Math.max(0, camera.position.distanceTo(_sc.copy(s.center)) - s.radius);
+    m.visible = r === 'far' ? d >= m.userData.lodDist : d < m.userData.lodDist;
+  }
+  const far = camera.position.y > 2500 || camera.position.distanceTo(controls.target) > 6000;
+  if (far === lodFar) return;
+  lodFar = far;
+  for (const m of meshes) if (m.userData.kind === 'merged' && m.userData.cat === 'pv') m.visible = !far;
+  for (const [eid, e] of elements) {
+    if (!/array ground/i.test(lineName(eid))) continue;
+    e.lodColor = far ? ARRAY_BLUE : null;
+    repaintElement(eid);
+  }
+}
+// a block's phase, from the schedule's "PHASE-n > Block-nn" paths ('' when the schedule does not say): no site's table is hardcoded
+function phaseOf(b) {
+  for (const [ph, blocks] of phaseBlocks) if ([...blocks].some(x => +(x.match(/\d+/) || [])[0] === b)) {
+    const p = ph.replace(/\s*\(.*\)\s*$/, ''); return p.charAt(0) + p.slice(1).toLowerCase();
+  }
+  return '';
+}
+const withPhase = (text, b) => { const p = phaseOf(b); return p ? `${text} · ${p}` : text; };
+const tagPool = [];
+const _tp = new THREE.Vector3();
+function updateTags() {
+  if (!labelsOn || !tagList.length) { tagLayer.style.display = 'none'; return; }
+  tagLayer.style.display = 'block';
+  const r = renderer.domElement.getBoundingClientRect(), W = r.width, H = r.height;
+  const cam = camera.position, cand = [];
+  for (const L of tagList) {
+    const d = cam.distanceTo(L.pos);
+    if (d > L.maxDist) continue;
+    const e = elements.get(L.eids[0]); if (e && e.hidden && L.eids.every(id => elements.get(id).hidden)) continue;
+    _tp.copy(L.pos).project(camera);
+    if (_tp.z > 1 || _tp.x < -1.05 || _tp.x > 1.05 || _tp.y < -1.05 || _tp.y > 1.1) continue;
+    cand.push([L.lvl * 1e7 + d, L, (_tp.x + 1) / 2 * W, (1 - _tp.y) / 2 * H]);
+  }
+  cand.sort((a, b) => a[0] - b[0]);
+  const occ = new Set(), CW = 90, CH = 22, MAX = 260;
+  let used = 0;
+  for (const [, L, x, y] of cand) {
+    if (used >= MAX) break;
+    const w = Math.ceil(Math.min(L.text.length * (L.lvl === 0 ? 8.5 : 6.5) + 14, 340) / CW);
+    const cx = Math.floor(x / CW), cy = Math.floor(y / CH);
+    let free = true;
+    const rows = L.lvl === 0 ? [cy - 1, cy, cy + 1] : [cy - 1, cy];
+    for (let i = -Math.ceil(w / 2); i <= Math.ceil(w / 2) && free; i++) for (const ry of rows) if (occ.has((cx + i) + ':' + ry)) free = false;
+    if (!free) continue;
+    for (let i = -Math.ceil(w / 2); i <= Math.ceil(w / 2); i++) for (const ry of rows) occ.add((cx + i) + ':' + ry);
+    let el = tagPool[used];
+    if (!el) {
+      el = document.createElement('div'); tagLayer.appendChild(el); tagPool.push(el);
+      el.addEventListener('click', (ev) => { ev.stopPropagation(); const T = el._tag; if (T) select(T.eids, true); });
+      el.addEventListener('pointerdown', ev => ev.stopPropagation());
+    }
+    if (el._tag !== L) { el._tag = L; el.textContent = L.text; el.className = 'tag l' + L.lvl; el.title = L.text + ' – click to select'; }
+    el.style.display = 'block';
+    el.style.left = x.toFixed(1) + 'px'; el.style.top = y.toFixed(1) + 'px';
+    used++;
+  }
+  for (let i = used; i < tagPool.length; i++) tagPool[i].style.display = 'none';
+}
+
+// ---------------------------------------------------------------- schedule / VisiLean status (4D)
+// statuses in VisiLean order; colours sampled from VisiLean (Not Ready, Not Committed, Started, Complete).
+const VL_ORDER = ['Not Ready', 'Not Committed', 'Ready', 'Forced Ready', 'Committed', 'Started', 'Complete'];
+const VL_CLS = { 'Not Ready': 'nr', 'Not Committed': 'nc', 'Ready': 'rd', 'Forced Ready': 'fr', 'Committed': 'cm', 'Started': 'st', 'Complete': 'cp' };
+const VL_HEX = { 'Not Ready': 0xd47d70, 'Not Committed': 0xddd75d, 'Ready': 0x7fc4d8, 'Forced Ready': 0xf0a35e, 'Committed': 0x4a90d9, 'Started': 0x3c007b, 'Complete': 0x72a64c };
+const VL_RGB = Object.fromEntries(Object.entries(VL_HEX).map(([k, h]) => { const c = new THREE.Color(h); return [k, [c.r, c.g, c.b]]; }));
+const LATE_RGB = (() => { const c = new THREE.Color(0xd13636); return [c.r, c.g, c.b]; })();
+const CONTEXT_RGB = (() => { const c = new THREE.Color(0xd5d9de); return [c.r, c.g, c.b]; })();
+const sched = { tasks: [], byId: new Map(), elemTasks: new Map(), dataDate: null, name: '', source: 'P6', wp: '', built: false, delayedHl: false };
+const chip = (s) => `<span class="vl ${VL_CLS[s] || 'nr'}">${escapeHtml(s)}</span>`;
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const fmtD = (iso) => { if (!iso) return '—'; const d = new Date(iso); return isNaN(d) ? '—' : `${d.getDate()} ${MON[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`; };
+function normStatus(s) {
+  const t = String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const map = { 'not ready': 'Not Ready', 'not committed': 'Not Committed', 'ready': 'Ready', 'forced ready': 'Forced Ready', 'committed': 'Committed',
+    'started': 'Started', 'in progress': 'Started', 'rejected at qc': 'Started', 'complete': 'Complete', 'completed': 'Complete', 'quality checked': 'Complete' };
+  return map[t] || null;
+}
+function workType(name) { return String(name || '').replace(/^Block-\d+\s*-\s*/i, '').replace(/\s+/g, ' ').replace(/ to /gi, ' To ').trim(); }
+// ---- the dashboard's working-day calendar and progress formulas, copied from KPI_Green
+// ntpc_dash_template_v3.html (r[C.x] -> t.x). Dates in schedule.json are working days: a start s is
+// WD[s], a finish f is WD[f - 1], and "at" on a date is the number of working days up to and including it.
+// WD is built in UTC so it lines up with Date.parse of the ISO dates the timeline uses.
+let WD = [], SW = 0;
+function buildWD(cal) {
+  WD = []; const sd = String(cal.startDate || '2026-05-07').split('-').map(Number);
+  const off = new Set(Array.isArray(cal.weeklyOff) ? cal.weeklyOff : [6]);
+  const d = new Date(Date.UTC(sd[0], (sd[1] || 1) - 1, sd[2] || 1));
+  while (WD.length < 1200) { if (!off.has((d.getUTCDay() + 6) % 7)) WD.push(d.getTime()); d.setUTCDate(d.getUTCDate() + 1); }
+}
+const wdIso = (w, fin) => w == null ? null : new Date(WD[Math.min(WD.length - 1, Math.max(0, Math.round(w) - (fin ? 1 : 0)))]).toISOString().slice(0, 10);
+const wdAt = (ms) => { let lo = 0, hi = WD.length; while (lo < hi) { const m = (lo + hi) >> 1; if (WD[m] <= ms) lo = m + 1; else hi = m; } return lo; };
+function wgt(rows) { const c = rows.reduce((a, r) => a + (r.wt > 0 ? r.wt : 0), 0); return c > 0 ? (r => (r.wt > 0 ? r.wt : 0)) : (r => r.dur); }
+function wsum(rows) { const w = wgt(rows); return rows.reduce((a, r) => a + w(r), 0) || 1; }
+function planPct(rows, at) { const w = wgt(rows), W = wsum(rows); return 100 * rows.reduce((a, r) => a + Math.min(1, Math.max(0, (at - r.bES) / Math.max(.5, r.dur))) * w(r), 0) / W; }
+function fcPct(rows, at) { const w = wgt(rows), W = wsum(rows); return 100 * rows.reduce((a, r) => a + Math.min(1, Math.max(0, (at - r.fES) / Math.max(.5, r.dur))) * w(r), 0) / W; }
+function elapsedOf(r, at) {
+  if (r.pct >= 100) { const fin = r.aef != null ? r.aef : r.fEF; return at >= fin ? 1 : 0; }
+  return Math.max(0, (at - r.fES) / Math.max(.5, r.dur));
+}
+function actPctAt(rows, at) { const w = wgt(rows), W = wsum(rows); return 100 * rows.reduce((a, r) => a + Math.min(r.pct / 100, elapsedOf(r, at)) * w(r), 0) / W; }
+
+// one activity per dashboard row in schedule.json; its elements are its map group, by IFC GlobalId.
+// Status is VisiLean's (vls), "delayed" is the dashboard's own rule (dly): nothing is recalculated here.
+function readSchedule() {
+  sched.tasks = []; sched.byId.clear(); sched.elemTasks.clear(); sched.dataDate = null;
+  if (!META || !sceneSchedule || !sceneSchedule.tasks || !sceneSchedule.tasks.length) return false;
+  const S = sceneSchedule;
+  buildWD(S.calendar || {}); SW = S.statusWd;
+  sched.name = S.name || ''; sched.dataDate = wdIso(SW, true);
+  const eidOf = new Map(); for (const [eid, m] of META) eidOf.set(m.guid, eid);
+  // only drawn elements: a schedule placeholder (listed in scene.bin, no geometry) leaves its activity "not in model"
+  const groups = S.groups.map(g => g.map(gid => eidOf.get(gid)).filter(e => e != null && elements.has(e)));
+  S.tasks.forEach((s, i) => {
+    const status = normStatus(s.vls) || 'Not Ready';
+    const t = { ...s, id: i, code: s.tid || '', status, delayed: !!s.dly, type: workType(s.name), dd: sched.dataDate,
+      bs: wdIso(s.bES), bf: wdIso(s.bEF, true), ps: wdIso(s.fES), pf: wdIso(s.fEF, true), as: wdIso(s.aes), af: wdIso(s.aef, true),
+      elems: groups[s.group] || [] };
+    sched.tasks.push(t); sched.byId.set(i, t);
+    for (const e of t.elems) { if (!sched.elemTasks.has(e)) sched.elemTasks.set(e, []); sched.elemTasks.get(e).push(t); }
+  });
+  sched.source = `KPI_Green dashboard · ${sched.tasks.length.toLocaleString('en-IN')} activities` + (S.fetched ? ` · refreshed ${S.fetched}` : '');
+  sched.live = true;
+  return true;
+}
+// roll-up of an element's linked activities (optionally only one work type)
+function elemStatus(eid) {
+  let ts = sched.elemTasks.get(eid); if (!ts) return null;
+  if (sched.wp) { ts = ts.filter(t => t.type === sched.wp); if (!ts.length) return null; }
+  if (ts.every(t => t.status === 'Complete')) return 'Complete';
+  if (ts.some(t => t.status === 'Started' || t.status === 'Complete')) return 'Started';
+  for (const s of ['Committed', 'Forced Ready', 'Ready', 'Not Committed']) if (ts.some(t => t.status === s)) return s;
+  return 'Not Ready';
+}
+function elemDelayed(eid) {
+  let ts = sched.elemTasks.get(eid); if (!ts) return false;
+  if (sched.wp) ts = ts.filter(t => t.type === sched.wp);
+  return ts.some(t => t.delayed);
+}
+function buildScheduleUI() {
+  $('tabSched').style.display = '';
+  $('optStatus').disabled = false;
+  // work-type picker (only types that drive geometry)
+  const types = new Map();
+  for (const t of sched.tasks) if (t.elems.length && /BLOCK[- ]?\d+/i.test(t.loc)) types.set(t.type, (types.get(t.type) || 0) + 1);
+  $('schWp').innerHTML = '<option value="">All linked activities (roll-up)</option>' +
+    [...types.keys()].map(k => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join('');
+  // element filter: VisiLean status, location (phase / block of the linked activities), element type (filled in buildFilterUI)
+  $('schStat').innerHTML = '<option value="">All VisiLean statuses</option>' + VL_ORDER.map(s => `<option>${s}</option>`).join('') + '<option value="__late">Delayed</option>';
+  // locations as a tree: phase > its blocks, then the other places (parent > place). A block's activities sit under
+  // several packages (AC side, DC side, commissioning...), so a block is matched wherever it appears in the path.
+  phaseBlocks.clear();
+  const blocks = new Set(), others = new Map();
+  for (const t of sched.tasks) if (t.elems.length) {
+    const parts = t.loc.split(' > '), blk = parts.find(p => /^BLOCK[- ]?\d/i.test(p)), ph = parts.find(p => /^PHASE[- ]?\d/i.test(p));
+    if (ph) { if (!phaseBlocks.has(ph)) phaseBlocks.set(ph, new Set()); if (blk) phaseBlocks.get(ph).add(blk); }
+    if (blk) blocks.add(blk);
+    else if (!ph) { const parent = parts.length > 1 ? parts[parts.length - 2] : ''; if (!others.has(parent)) others.set(parent, new Set()); others.get(parent).add(parts[parts.length - 1]); }
+  }
+  const byNum = (a, b) => a.localeCompare(b, undefined, { numeric: true }), IND = '\u00a0\u00a0\u00a0\u00a0';
+  const opt = (v, l, d = 0) => `<option value="${escapeHtml(v)}">${IND.repeat(d)}${escapeHtml(l)}</option>`;
+  const inPhase = new Set([...phaseBlocks.values()].flatMap(b => [...b]));
+  $('schLoc').innerHTML = '<option value="">All locations</option>' +
+    [...phaseBlocks.keys()].sort(byNum).map(ph => opt('P:' + ph, ph) + [...phaseBlocks.get(ph)].sort(byNum).map(b => opt('S:' + b, b, 1)).join('')).join('') +
+    [...blocks].filter(b => !inPhase.has(b)).sort(byNum).map(b => opt('S:' + b, b)).join('') +
+    [...others.keys()].sort(byNum).map(p => (p ? opt('S:' + p, p) : '') + [...others.get(p)].sort(byNum).map(l => opt('S:' + l, l, p ? 1 : 0)).join('')).join('');
+  $('schFInfo').textContent = 'Pick a status, location and/or element type.';
+  $('bSim').style.display = ''; $('bPva').style.display = '';
+  refreshScheduleUI();
+}
+function refreshScheduleUI() {
+  const cnt = {}; let late = 0;
+  for (const t of sched.tasks) { cnt[t.status] = (cnt[t.status] || 0) + 1; if (t.delayed) late++; }
+  $('schChips').innerHTML = VL_ORDER.filter(s => cnt[s]).map(s => `<span class="chip" data-s="${s}">${chip(s)}<b>${cnt[s].toLocaleString('en-IN')}</b></span>`).join('') +
+    `<span class="chip" data-s="__late"><span class="vl late">Delayed</span><b>${late}</b></span>`;
+  if ($('schStat').value || $('schLoc').value || $('schKind').value) applySchedFilter();
+}
+// ---- element filter in the Schedule tab
+const phaseBlocks = new Map();          // phase -> its blocks (from "PHASE-n > Block-nn" paths)
+// key "P:<phase>" = the phase's own activities and its blocks'; "S:<place>" = that place anywhere in the path
+function inLoc(loc, key) {
+  const parts = loc.split(' > '), k = key.slice(2);
+  if (key.startsWith('P:')) { const b = phaseBlocks.get(k) || new Set(); return parts.some(p => p === k || b.has(p)); }
+  return parts.includes(k);
+}
+function schedFilterIds() {
+  const st = $('schStat').value, loc = $('schLoc').value, kind = $('schKind').value;
+  let ids = kind ? kindIndex.get(kind) || [] : [...sched.elemTasks.keys()];
+  ids = ids.filter(id => sched.elemTasks.has(id) && elements.has(id) && !elements.get(id).hidden);
+  if (loc) ids = ids.filter(id => sched.elemTasks.get(id).some(t => inLoc(t.loc, loc)));
+  if (st) ids = ids.filter(id => st === '__late' ? elemDelayed(id) : elemStatus(id) === st);
+  return ids;
+}
+function schedFilterTasks(ids) {
+  const st = $('schStat').value, loc = $('schLoc').value, kind = $('schKind').value;
+  const inKind = kind ? new Set(ids) : null;
+  return sched.tasks.filter(t => t.elems.length && (!sched.wp || t.type === sched.wp) && (!loc || inLoc(t.loc, loc)) &&
+    (!st || (st === '__late' ? t.delayed : t.status === st)) && (!inKind || t.elems.some(e => inKind.has(e))));
+}
+// activities linked to a set of elements: the count shown everywhere instead of element counts
+function tasksOf(ids) { const s = new Set(); for (const id of ids) for (const t of sched.elemTasks.get(id) || []) s.add(t); return [...s]; }
+const countOf = (ids) => sched.elemTasks.size ? tasksOf(ids).length : ids.length;
+const countWord = (n) => sched.elemTasks.size ? `activit${n === 1 ? 'y' : 'ies'}` : `element${n === 1 ? '' : 's'}`;
+function applySchedFilter() {
+  const st = $('schStat').value, loc = $('schLoc').value, kind = $('schKind').value;
+  if (!st && !loc && !kind) { $('schFInfo').textContent = 'Pick a status, location and/or element type.'; select([]); return; }
+  const ids = schedFilterIds(), tasks = schedFilterTasks(ids);
+  $('schFInfo').innerHTML = (tasks.length ? `<b style="color:var(--text)">${tasks.length.toLocaleString('en-IN')}</b> activit${tasks.length === 1 ? 'y' : 'ies'}` : 'No activities') +
+    (ids.length > FOCUS_MAX ? ' · shown in orange' : '');
+  select(ids, ids.length > 0);
+}
+['schStat', 'schLoc', 'schKind'].forEach(id => $(id).onchange = applySchedFilter);
+$('schFClear').onclick = () => { $('schStat').value = ''; $('schLoc').value = ''; $('schKind').value = ''; applySchedFilter(); };
+
+// ---- activity list dialog (opened from the status buttons)
+
+// the dashboard's activity panel (actDetail): grouped rows, opened over the 3D view from any activity row
+function openAct(t) {
+  if (!t) return;
+  const row = (k, v) => `<div class="pprow"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+  const grp = (h, rows) => `<div class="pgrp"><div class="gh">${h}</div>${rows.join('')}</div>`;
+  $('actPopT').innerHTML = escapeHtml(t.name);
+  $('actPopB').innerHTML =
+    grp('Activity', [row('Task ID', escapeHtml(t.code || '—')), row('Location', escapeHtml(t.loc || '—'))]) +
+    grp('Status', [row('VisiLean status', chip(t.status)), row('Progress', t.pct + '%'),
+      row('Delayed', t.delayed ? '<span class="vl late">Yes</span>' : '<span class="muted">No</span>')]) +
+    grp('Schedule', [row('Baseline', `${fmtD(t.bs || t.ps)} → ${fmtD(t.bf || t.pf)}`),
+      row(t.af ? 'Actual' : 'Actual / forecast', `${fmtD(t.as || t.ps)} → ${fmtD(t.af || t.pf)}`),
+      row('Finish variance', finishVariance(t)), row('Data date', fmtD(t.dd))]) +
+    grp('Linked model elements', t.elems.length ? linkedSummary(t).map(([k, n]) => row(escapeHtml(k), n)) : ['<p class="muted">Not linked: no element in the model.</p>']) +
+    (t.elems.length ? `<button class="sch-btn" id="actPopZoom">Highlight and zoom to the ${t.elems.length.toLocaleString('en-IN')} element${t.elems.length === 1 ? '' : 's'}</button>` : '');
+  const z = $('actPopZoom'); if (z) z.onclick = () => select(t.elems, true);
+  $('actPop').hidden = false; $('actPopB').scrollTop = 0;
+}
+const closeAct = () => { $('actPop').hidden = true; };
+$('actPopX').onclick = closeAct;
+$('props').addEventListener('click', (ev) => { const r = ev.target.closest('[data-t]'); if (r) openAct(sched.byId.get(+r.dataset.t)); });
+function finishVariance(t) {
+  const T = taskTimes(t); if (T.pf == null || T.bf == null) return '—';
+  const d = Math.round((T.pf - T.bf) / DAY);
+  return d === 0 ? 'On plan' : d > 0 ? `${d} day${d === 1 ? '' : 's'} later than plan` : `${-d} day${d === -1 ? '' : 's'} earlier than plan`;
+}
+function linkedSummary(t) {
+  const c = new Map();
+  for (const e of t.elems) {
+    const k = lineName(e).replace(/^S6a-B\d+-(T\d+|INV\d+)\s+/, '').replace(/^S6a-ICR-\d+\s+/, '').replace(/\s*\(.*$/, '').trim() || prettyType(elementType(e));
+    c.set(k, (c.get(k) || 0) + 1);
+  }
+  return [...c.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => [k, n.toLocaleString('en-IN')]);
+}
+// activity rows: click one for its panel
+const actRows = (ts) => '<table class="acts">' + ts.map(t => `<tr data-t="${t.id}" title="Open the activity"><td>${chip(t.status)}${t.delayed ? ' <span class="vl late">Late</span>' : ''}<div class="muted" style="font-size:11px;margin-top:2px">${escapeHtml(t.code)}</div></td>
+      <td>${escapeHtml(t.name)}<div class="muted" style="font-size:11px">${fmtD(t.ps)} → ${fmtD(t.pf)} · ${t.pct}%</div></td></tr>`).join('') + '</table>';
+function linkedActivitiesHtml(eid) {
+  const ts = sched.elemTasks.get(eid); if (!ts || !ts.length) return '';
+  const st = elemStatus(eid);
+  return `<h3>Schedule – VisiLean status</h3><div style="margin-bottom:6px">${st ? chip(st) : ''} <span class="muted">roll-up of ${ts.length} linked activit${ts.length === 1 ? 'y' : 'ies'}</span></div>` + actRows(ts);
+}
+// a multi-selection (a block, a filter): its activities, most urgent first
+function activitiesHtml(ts) {
+  const MAX = 300, rank = (t) => (t.delayed ? 0 : 1) * 10 + VL_ORDER.indexOf(t.status);
+  ts = ts.slice().sort((a, b) => rank(a) - rank(b) || String(a.code).localeCompare(String(b.code), undefined, { numeric: true }));
+  return `<h2>${ts.length.toLocaleString('en-IN')} activit${ts.length === 1 ? 'y' : 'ies'}</h2><p class="muted" style="margin:2px 0 8px">linked to the selection · click one for its details</p>` +
+    actRows(ts.slice(0, MAX)) + (ts.length > MAX ? `<p class="muted">… ${(ts.length - MAX).toLocaleString('en-IN')} more</p>` : '');
+}
+// 4D "as-built": hide elements whose activities have not started yet
+const hiddenBy4D = new Set();
+function applyAsBuilt() {
+  for (const eid of hiddenBy4D) setHidden(eid, false);
+  hiddenBy4D.clear();
+  if (sched.built) for (const eid of sched.elemTasks.keys()) {
+    const s = elemStatus(eid);
+    if (s && s !== 'Started' && s !== 'Complete' && elements.has(eid) && !elements.get(eid).hidden) { setHidden(eid, true); hiddenBy4D.add(eid); }
+  }
+  refreshVisibilityUI();
+}
+function scheduleChanged() {
+  refreshScheduleUI(); applyAsBuilt();
+  if (colorMode === 'status') applyColorMode('status');
+}
+$('schWp').onchange = (e) => { sched.wp = e.target.value; scheduleChanged(); if (tl.mode) tlRefresh(true); };
+$('schBuilt').onchange = (e) => { if (tl.mode) tlClose(); sched.built = e.target.checked; applyAsBuilt(); };
+$('schDelayed').onchange = (e) => { sched.delayedHl = e.target.checked; if (colorMode === 'status') applyColorMode('status'); };
+
+// ---------------------------------------------------------------- colour, visibility
+const tmpCol = new THREE.Color();
+// rgb = null restores the element's original (per-vertex) IFC colours
+function paintPart(part, rgb) {
+  if (part.mesh.userData.kind === 'inst') {
+    const c = rgb || WHITE;
+    part.mesh.setColorAt(part.i, tmpCol.setRGB(c[0], c[1], c[2]));
+    part.mesh.instanceColor.needsUpdate = true;
+  } else {
+    const a = part.mesh.geometry.attributes.color;
+    if (rgb) for (let i = part.start; i < part.start + part.count; i++) a.setXYZ(i, rgb[0], rgb[1], rgb[2]);
+    else a.array.set(part.mesh.userData.col0.subarray(part.start * 3, (part.start + part.count) * 3), part.start * 3);
+    a.needsUpdate = true;
+  }
+}
+const SEL_RGB = [1.0, 0.54, 0.0];
+function hashColor(key) {
+  let h = 2166136261;
+  for (const ch of String(key)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
+  const hue = ((h >>> 0) % 360) / 360;
+  const c = new THREE.Color().setHSL(hue, 0.62, 0.55);
+  return [c.r, c.g, c.b];
+}
+const legendMap = new Map();
+function modeColor(eid, part) {
+  const e = elements.get(eid);
+  if (colorMode === 'timeline') return tlColor(eid);
+  if (colorMode === 'status') {
+    const s = elemStatus(eid);
+    if (s) return (sched.delayedHl && elemDelayed(eid)) ? LATE_RGB : VL_RGB[s];
+    if (/GeographicElement/i.test(elementType(eid))) return e.lodColor || null;
+    return CONTEXT_RGB;
+  }
+  if (colorMode !== 'ifc' && /GeographicElement/i.test(elementType(eid))) return e.lodColor || null;   // keep terrain / ground in its own colour
+  if (colorMode === 'container') {
+    const n = spatial.nodes.get(e.container);
+    const key = n ? (n.name || n.type) : '—';
+    if (!legendMap.has(key)) legendMap.set(key, hashColor(key));
+    return legendMap.get(key);
+  }
+  if (e.lodColor) return e.lodColor;
+  return (realistic && part.cat === 'pv') ? WHITE : null;      // textured glass carries its own colour; else original colours
+}
+const WHITE = [1, 1, 1];
+function repaintElement(eid) {
+  const e = elements.get(eid);
+  if (!e) return;
+  const hl = selected.has(eid) && !/GeographicElement/i.test(elementType(eid));   // don't paint whole terrain orange
+  for (const p of e.parts) paintPart(p, hl ? SEL_RGB : modeColor(eid, p));
+}
+function applyColorMode(mode) {
+  colorMode = mode; legendMap.clear();
+  $('colorMode').value = mode;
+  for (const m of meshes) m.material = getMat(m.userData.cat, m.userData.kind === 'merged', m.userData.trans);
+  for (const eid of elements.keys()) repaintElement(eid);
+  if (focusActive) refreshFocus();
+  renderLegend(); needsRender = true; shadowDirty = true;
+}
+function renderLegend() {
+  const lg = $('legend');
+  if (colorMode === 'status') {
+    // activities per status: the dashboard's count
+    const act = {}; let actLate = 0;
+    for (const t of sched.tasks) if (t.elems.length && (!sched.wp || t.type === sched.wp)) { act[t.status] = (act[t.status] || 0) + 1; if (t.delayed) actLate++; }
+    const n = (v) => `<span class="n">${(v || 0).toLocaleString('en-IN')}</span>`;
+    lg.innerHTML = `<div class="eyebrow">VisiLean status</div><div class="muted" style="margin:2px 0 6px">${escapeHtml(sched.wp || 'All linked activities (roll-up)')}</div>` +
+      `<div class="it hd"><span></span><span class="n">Activities</span></div>` +
+      VL_ORDER.filter(s => act[s]).map(s => `<div class="it" data-s="${s}">${chip(s)}${n(act[s])}</div>`).join('') +
+      (sched.delayedHl ? `<div class="it" data-s="__late"><span class="vl late">Delayed</span>${n(actLate)}</div>` : '') +
+      `<div class="it" style="cursor:default"><span class="sw" style="background:#d5d9de"></span><span class="muted">No linked activity</span></div>`;
+    lg.style.display = 'block';
+    lg.querySelectorAll('.it[data-s]').forEach(it => it.onclick = () => {
+      const s = it.dataset.s;
+      select([...sched.elemTasks.keys()].filter(eid => s === '__late' ? elemDelayed(eid) : elemStatus(eid) === s), true);
+    });
+    return;
+  }
+  if (colorMode === 'ifc' || !legendMap.size) { lg.style.display = 'none'; return; }
+  lg.innerHTML = '<b>Block / container</b>' +
+    [...legendMap.entries()].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }))
+      .map(([k, c]) => `<div class="it" data-k="${escapeHtml(k)}"><span class="sw" style="background:rgb(${c.map(v => Math.round(v * 255)).join(',')})"></span>${escapeHtml(k)}</div>`).join('');
+  lg.style.display = 'block';
+  lg.querySelectorAll('.it').forEach(it => it.onclick = () => {
+    const k = it.dataset.k;
+    const ids = [...elements.keys()].filter(eid => (spatial.nodes.get(elements.get(eid).container) || {}).name === k);
+    select(ids, true);
+  });
+}
+
+const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
+function setHidden(eid, hidden) {
+  const e = elements.get(eid);
+  if (!e || e.hidden === hidden) return;
+  e.hidden = hidden;
+  for (const p of e.parts) {
+    if (p.mesh.userData.kind === 'inst') {
+      if (hidden) p.mesh.setMatrixAt(p.i, ZERO);
+      else p.mesh.setMatrixAt(p.i, tmpMat.fromArray(p.mesh.userData.base[p.i]));
+      p.mesh.instanceMatrix.needsUpdate = true;
+    } else {
+      const a = p.mesh.geometry.attributes.position, src = p.mesh.userData.pos0;
+      if (hidden) { const x = src[p.start*3], y = src[p.start*3+1], z = src[p.start*3+2]; for (let i = p.start; i < p.start + p.count; i++) a.setXYZ(i, x, y, z); }
+      else a.array.set(src.subarray(p.start * 3, (p.start + p.count) * 3), p.start * 3);
+      a.needsUpdate = true;
+    }
+  }
+}
+const tmpMat = new THREE.Matrix4();
+function refreshVisibilityUI() { document.querySelectorAll('.eye[data-k]').forEach(updateEye); if (selected.size) refreshFocus(); needsRender = true; }
+
+// ---------------------------------------------------------------- selection & properties
+function select(ids, fit = false, add = false) {
+  const prev = [...selected];
+  if (!add) selected.clear();
+  for (const id of ids) if (elements.has(id)) selected.add(id);
+  for (const id of prev) repaintElement(id);
+  for (const id of selected) repaintElement(id);
+  document.querySelectorAll('.row.sel').forEach(r => r.classList.remove('sel'));
+  for (const id of selected) document.querySelectorAll(`.row[data-e="${id}"]`).forEach(r => r.classList.add('sel'));
+  $('app').classList.toggle('show-right', selected.size > 0);
+  if (selected.size === 1) showProps([...selected][0]);
+  else if (selected.size > 1) $('props').innerHTML = sched.elemTasks.size ? activitiesHtml(tasksOf(selected))
+    : `<h2>${selected.size} elements selected</h2><p class="muted">Use Isolate / Hide, or click a single element for its name.</p>`;
+  if (fit && selected.size) fitTo([...selected]);
+  refreshFocus();
+  needsRender = true;
+  if (tl.mode) { tlLegend(); tlDrawChart(); }
+}
+
+// ---------------------------------------------------------------- focus: selection drawn solid, everything else faded
+// The model meshes switch to a faint "glass" material; the selected elements are copied into hlRoot with their own colours.
+const FOCUS_MAX = 30000;                 // bigger selections (e.g. the whole plot) keep the plain orange highlight
+const hlRoot = new THREE.Group(); scene.add(hlRoot);
+const GHOST = {
+  solid: new THREE.MeshLambertMaterial({ color: 0xcfd4db, transparent: true, opacity: 0.1, depthWrite: false, side: THREE.DoubleSide }),
+  ground: new THREE.MeshLambertMaterial({ color: 0xe4dac6, side: THREE.DoubleSide }),          // opaque, so highlighted roads on it stay visible
+};
+const HL_MAT = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.6, metalness: 0.05, envMapIntensity: 0.5,
+  polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 });    // wins over faded faces at the same depth
+function setMeshMaterials() {
+  for (const m of meshes) {
+    const c = m.userData.cat;
+    m.material = focusActive ? (c === 'ground' || c === 'road' ? GHOST.ground : GHOST.solid) : getMat(c, m.userData.kind === 'merged', m.userData.trans);
+  }
+}
+function clearHighlight() {
+  for (const o of hlRoot.children) { if (o.userData.own) o.geometry.dispose(); if (o.isInstancedMesh) o.dispose(); }
+  hlRoot.clear();
+}
+function refreshFocus() {
+  clearHighlight();
+  const ids = [...selected].filter(id => { const e = elements.get(id); return e && !e.hidden && !/^Terrain/i.test(lineName(id)); });
+  focusActive = focusOn && ids.length > 0 && ids.length <= FOCUS_MAX;
+  setMeshMaterials();
+  sun.castShadow = realistic && shadowsOn && !focusActive;        // faded elements must not throw shadows on the highlight
+  if (focusActive) buildHighlight(ids);
+  needsRender = true; shadowDirty = true;
+}
+// flat ground items (roads, pads) read poorly in their own colour against faded sand: highlight them orange
+function highlightColor(eid, p) { if (p.cat === 'road' || p.cat === 'ground') return SEL_RGB; const c = modeColor(eid, p); return c === WHITE ? null : c; }
+function buildHighlight(ids) {
+  const inst = new Map(), merged = new Map();
+  for (const eid of ids) for (const p of elements.get(eid).parts) {
+    const isInst = p.mesh.userData.kind === 'inst';
+    if (isInst && p.mesh.userData.lodRole === 'far') continue;    // far-view stand-ins: the full-detail copy is enough
+    const bucket = isInst ? inst : merged;
+    if (!bucket.has(p.mesh)) bucket.set(p.mesh, []);
+    bucket.get(p.mesh).push([eid, p]);
+  }
+  for (const [m, list] of inst) {
+    const im = new THREE.InstancedMesh(m.geometry, HL_MAT, list.length);
+    list.forEach(([eid, p], k) => {
+      im.setMatrixAt(k, _im4.fromArray(m.userData.base[p.i]));
+      const c = highlightColor(eid, p) || WHITE;
+      im.setColorAt(k, tmpCol.setRGB(c[0], c[1], c[2]));
+    });
+    im.instanceMatrix.needsUpdate = true; im.instanceColor.needsUpdate = true;
+    im.computeBoundingSphere(); im.receiveShadow = true;
+    hlRoot.add(im);
+  }
+  for (const [m, list] of merged) {
+    let nv = 0, ni = 0;
+    for (const [, p] of list) { nv += p.count; ni += p.icount; }
+    const pos = new Float32Array(nv * 3), nrm = new Float32Array(nv * 3), col = new Float32Array(nv * 3), idx = new Uint32Array(ni);
+    const P = m.userData.pos0, N = m.geometry.attributes.normal.array, C0 = m.userData.col0, I = m.geometry.index.array;
+    let vo = 0, io = 0;
+    for (const [eid, p] of list) {
+      pos.set(P.subarray(p.start * 3, (p.start + p.count) * 3), vo * 3);
+      nrm.set(N.subarray(p.start * 3, (p.start + p.count) * 3), vo * 3);
+      const c = highlightColor(eid, p);
+      if (c) for (let i = 0; i < p.count; i++) col.set(c, (vo + i) * 3);
+      else col.set(C0.subarray(p.start * 3, (p.start + p.count) * 3), vo * 3);
+      for (let i = 0; i < p.icount; i++) idx[io + i] = I[p.istart + i] - p.start + vo;
+      vo += p.count; io += p.icount;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    g.setIndex(new THREE.BufferAttribute(idx, 1));
+    g.computeBoundingSphere();
+    const mesh = new THREE.Mesh(g, HL_MAT);
+    mesh.userData.own = true; mesh.receiveShadow = true;
+    hlRoot.add(mesh);
+  }
+}
+function setFocus(on) { focusOn = on; $('bFocus').classList.toggle('on', on); refreshFocus(); }
+
+// ---------------------------------------------------------------- 4D timeline: simulation and comparison with actual
+// 4D simulation: an element appears when its first linked activity starts and turns green when all are finished,
+//   on the chosen dates: planned, baseline or actual (VisiLean dates when the model was built with the API, else P6).
+// Compare: the view splits in two with one camera; left = planned or baseline, right = actual, divider draggable.
+const DAY = 86400000;
+const tl = { mode: null, basis: 'baseline', cmpBasis: 'baseline', t: 0, t0: 0, t1: 0, dd: 0, timer: 0, state: new Map(), hidden: new Set(), prevMode: 'ifc', elems: [] };
+const SIM = [
+  { label: 'Not started (hidden)', hex: '#d5d9de' },
+  { label: 'In progress', hex: '#3c007b' },
+  { label: 'Complete', hex: '#72a64c' },
+];
+const BASIS = { baseline: 'Plan', planned: 'Forecast', actual: 'Actual' };     // plan = bES/bEF, forecast = fES/fEF, actual = aes/aef
+const msOf = (iso) => { if (!iso) return null; const v = Date.parse(iso); return isNaN(v) ? null : v; };
+function taskTimes(t) {
+  if (!t._tt) {
+    const ps = msOf(t.ps), pf = msOf(t.pf) ?? ps;
+    t._tt = { ps, pf, bs: msOf(t.bs) ?? ps, bf: msOf(t.bf) ?? pf, as: msOf(t.as), af: msOf(t.af) };
+  }
+  return t._tt;
+}
+const basisTimes = (T, b) => b === 'baseline' ? [T.bs, T.bf] : b === 'actual' ? [T.as, T.af] : [T.ps, T.pf];
+// 0 not started, 1 in progress, 2 finished (an actual start with no actual finish stays in progress)
+const stAt = (s, f, D) => s == null || D < s ? 0 : (f != null && D >= f ? 2 : 1);
+const taskState = (t, D, b) => { const [s, f] = basisTimes(taskTimes(t), b); return stAt(s, f, D); };
+const tlTasks = (eid) => { const ts = sched.elemTasks.get(eid) || []; return sched.wp ? ts.filter(t => t.type === sched.wp) : ts; };
+function elemState(eid, D, b) {
+  const ts = tlTasks(eid);
+  if (!ts.length) return -1;
+  let all = true, any = false;
+  for (const t of ts) { const s = taskState(t, D, b); if (s < 2) all = false; if (s > 0) any = true; }
+  return all ? 2 : any ? 1 : 0;
+}
+function tlColor(eid) {
+  const e = elements.get(eid);
+  if (/GeographicElement/i.test(elementType(eid))) return e.lodColor || null;
+  const s = tl.state.get(eid);
+  if (s == null || s < 0 || tl.mode !== 'sim') return CONTEXT_RGB;
+  return s === 2 ? VL_RGB['Complete'] : s === 1 ? VL_RGB['Started'] : CONTEXT_RGB;
+}
+function tlBasisOptions() {
+  const sel = $('tlBasis');
+  sel.innerHTML = tl.mode === 'sim'
+    ? Object.entries(BASIS).map(([k, l]) => `<option value="${k}">${l} dates</option>`).join('')
+    : '<option value="baseline">Plan vs Actual</option><option value="planned">Forecast vs Actual</option>';
+  sel.value = tl.mode === 'sim' ? tl.basis : tl.cmpBasis;
+}
+function tlOpen(mode, basis) {
+  if (!sched.tasks.length) return;
+  if (tl.mode === mode && !basis) { tlClose(); return; }
+  if (!tl.mode) {
+    tl.prevMode = colorMode === 'timeline' ? 'ifc' : colorMode;
+    select([]);                                                  // the timeline colours the whole model; nothing should be faded
+    if (sched.built) { sched.built = false; $('schBuilt').checked = false; applyAsBuilt(); }
+    let t0 = Infinity, t1 = -Infinity;
+    for (const t of sched.tasks) { const T = taskTimes(t); for (const v of [T.ps, T.pf, T.bs, T.bf, T.as, T.af]) if (v != null) { t0 = Math.min(t0, v); t1 = Math.max(t1, v); } }
+    tl.dd = msOf(sched.dataDate) || Date.now();
+    tl.t0 = Math.floor(t0 / DAY) * DAY; tl.t1 = Math.ceil(t1 / DAY) * DAY;
+    tl.t = Math.min(Math.max(tl.dd, tl.t0), tl.t1);
+    tl.elems = [...sched.elemTasks.keys()].filter(eid => elements.has(eid) && !/GeographicElement/i.test(elementType(eid)));
+    $('tlSlider').max = Math.round((tl.t1 - tl.t0) / DAY);
+    $('timeline').hidden = false; view.classList.add('tl-on');
+  }
+  if (basis) { if (mode === 'sim') tl.basis = basis; else tl.cmpBasis = basis; }
+  if (mode === 'sim') cmpOff(); else { tlUnhide(); tl.state.clear(); }
+  tl.mode = mode;
+  document.querySelectorAll('.tl-mode button').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
+  $('bSim').classList.toggle('on', mode === 'sim'); $('bPva').classList.toggle('on', mode === 'cmp');
+  tlBasisOptions();
+  if (mode === 'cmp') cmpOn();
+  tlRefresh(true);
+  applyColorMode('timeline');
+}
+function tlUnhide() { for (const eid of tl.hidden) setHidden(eid, false); tl.hidden.clear(); }
+function tlReset() {
+  tlStop(); cmpOff(); tlUnhide(); tl.mode = null; tl.state.clear();
+  $('timeline').hidden = true; view.classList.remove('tl-on');
+  $('bSim').classList.remove('on'); $('bPva').classList.remove('on');
+}
+function tlClose() { const back = tl.prevMode; tlReset(); applyColorMode(back); refreshVisibilityUI(); }
+// recompute element states for the current date; repaint / hide only what changed
+function tlRefresh(full = false) {
+  if (!tl.mode) return;
+  const D = tl.t;
+  if (tl.mode === 'cmp') { if (full) cmp.code.clear(); cmpRefresh(); }
+  else {
+    if (full) { tlUnhide(); tl.state.clear(); }
+    const changed = [];
+    for (const eid of tl.elems) {
+      const s = elemState(eid, D, tl.basis);
+      if (tl.state.get(eid) !== s) { tl.state.set(eid, s); changed.push(eid); }
+    }
+    for (const eid of changed) {
+      const s = tl.state.get(eid);
+      if (s === 0 && !elements.get(eid).hidden) { setHidden(eid, true); tl.hidden.add(eid); }
+      else if (s !== 0 && tl.hidden.has(eid)) { setHidden(eid, false); tl.hidden.delete(eid); }
+      repaintElement(eid);
+    }
+    if (changed.length) { needsRender = true; shadowDirty = true; if (selected.size) refreshFocus(); }
+  }
+  $('tlSlider').value = Math.round((tl.t - tl.t0) / DAY);
+  const d = new Date(tl.t);
+  $('tlDate').innerHTML = `${d.getDate()} ${MON[d.getMonth()]} ${d.getFullYear()}` +
+    (Math.abs(tl.t - tl.dd) < DAY ? ' <span class="muted">· data date</span>' : tl.t > tl.dd ? ' <span class="muted">· after data date</span>' : '');
+  if (tl.mode === 'cmp') cmpLabels();
+  tlLegend(); tlDrawChart();
+}
+// the activities the curve and progress figures cover: work package, location filter and selection
+function curveTasks() {
+  const loc = $('schLoc').value;
+  return sched.tasks.filter(t => (!sched.wp || t.type === sched.wp) && (!loc || inLoc(t.loc, loc)) &&
+    (!selected.size || t.elems.some(e => selected.has(e))));
+}
+function tlLegend() {
+  const D = tl.t, tasks = sched.tasks.filter(t => !sched.wp || t.type === sched.wp);
+  const cnt = (b) => { const c = [0, 0, 0]; for (const t of tasks) c[taskState(t, D, b)]++; return c; };
+  let html;
+  if (tl.mode === 'sim') {
+    const c = cnt(tl.basis), built = [...tl.state.values()].filter(s => s > 0).length;
+    html = `<div class="hd">Activities on this date · ${BASIS[tl.basis]} dates</div>` +
+      [2, 1, 0].map(i => `<div class="it" data-s="${i}" title="Click to highlight the elements"><span class="sw" style="background:${SIM[i].hex}"></span>${SIM[i].label}<b>${c[i].toLocaleString('en-IN')}</b></div>`).join('') +
+      `<div class="muted" style="margin-top:3px">Model: ${built.toLocaleString('en-IN')} of ${tl.elems.length.toLocaleString('en-IN')} linked elements built or in progress</div>`;
+  } else {
+    const L = cnt(tl.cmpBasis), R = cnt('actual'), v = [0, 0, 0];      // behind, on track, ahead
+    for (const t of tasks) { const p = taskState(t, D, tl.cmpBasis), a = taskState(t, D, 'actual'); if (p === 0 && a === 0) continue; v[a < p ? 0 : a > p ? 2 : 1]++; }
+    const row = (i) => `<tr><td>${SIM[i].label}</td><td>${L[i].toLocaleString('en-IN')}</td><td>${R[i].toLocaleString('en-IN')}</td></tr>`;
+    html = `<table class="tl-cmp"><tr><th>Activities</th><th>${BASIS[tl.cmpBasis]}</th><th>Actual</th></tr>${[2, 1, 0].map(row).join('')}</table>` +
+      `<div class="muted" style="margin-top:3px"><b style="color:#d13636">${v[0].toLocaleString('en-IN')} behind</b> · ${v[1].toLocaleString('en-IN')} on track · <b style="color:#2f7fd1">${v[2].toLocaleString('en-IN')} ahead</b> of ${BASIS[tl.cmpBasis].toLowerCase()}</div>` +
+      `<div class="muted">Progress: ${BASIS[tl.cmpBasis].toLowerCase()} ${(tl.cmpBasis === 'baseline' ? planPct : fcPct)(curveTasks(), wdAt(D)).toFixed(1)}% · actual ${actPctAt(curveTasks(), SW).toFixed(1)}% at the data date</div>`;
+  }
+  $('tlLegend').innerHTML = html;
+  $('tlLegend').querySelectorAll('.it[data-s]').forEach(it => it.onclick = () => {
+    const s = +it.dataset.s; select(tl.elems.filter(eid => tl.state.get(eid) === s && !elements.get(eid).hidden), true);
+  });
+}
+// weighted progress, the dashboard's Overall S-curve: plan and forecast (dashed), actual (solid, to the data date)
+function tlDrawChart() {
+  const cv = $('tlChart'), dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  if (!W || !H) return;
+  if (cv.width !== Math.round(W * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  const L = 34, R = 6, T = 6, B = 16, span = tl.t1 - tl.t0 || 1;
+  const X = (v) => L + (W - L - R) * (v - tl.t0) / span, Y = (p) => T + (H - T - B) * (1 - p);
+  g.font = '10px Segoe UI, sans-serif'; g.fillStyle = '#6a737d'; g.strokeStyle = '#e1e4e8'; g.lineWidth = 1;
+  for (const p of [0, 0.5, 1]) { g.beginPath(); g.moveTo(L, Y(p) + .5); g.lineTo(W - R, Y(p) + .5); g.stroke(); g.fillText(Math.round(p * 100) + '%', 4, Y(p) + 3); }
+  for (let d = new Date(tl.t0); d.getTime() <= tl.t1; d.setMonth(d.getMonth() + 1)) {
+    if (d.getMonth() % 2) continue;
+    const x = X(new Date(d.getFullYear(), d.getMonth(), 1).getTime()); if (x < L) continue;
+    g.fillText(`${MON[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`, x - 12, H - 3);
+  }
+  const rows = curveTasks(), N = 120;
+  const line = (f, a, b, color, dash) => {
+    g.beginPath(); g.setLineDash(dash || []); g.strokeStyle = color; g.lineWidth = 2;
+    for (let i = 0; i <= N; i++) { const v = a + (b - a) * i / N, x = X(v), y = Y(f(rows, wdAt(v)) / 100); i ? g.lineTo(x, y) : g.moveTo(x, y); }
+    g.stroke(); g.setLineDash([]);
+  };
+  line(planPct, tl.t0, tl.t1, '#2f7fd1', [5, 3]);
+  line(fcPct, tl.t0, tl.t1, '#8a5cc2', [2, 3]);
+  line(actPctAt, tl.t0, Math.min(tl.dd, tl.t1), '#2e7d32');
+  g.strokeStyle = '#6a737d'; g.setLineDash([2, 2]); g.beginPath(); g.moveTo(X(tl.dd) + .5, T); g.lineTo(X(tl.dd) + .5, H - B); g.stroke(); g.setLineDash([]);
+  g.strokeStyle = '#ff8a00'; g.lineWidth = 2; g.beginPath(); g.moveTo(X(tl.t), T); g.lineTo(X(tl.t), H - B); g.stroke();
+  const key = [['#2f7fd1', 'Plan', [5, 3]], ['#8a5cc2', 'Forecast', [2, 3]], ['#2e7d32', 'Actual', []], ['#6a737d', 'Data date', [2, 2]]];
+  let kx = L + 6;
+  for (const [c, t, d] of key) { g.strokeStyle = c; g.lineWidth = 2; g.setLineDash(d); g.beginPath(); g.moveTo(kx, T + 6); g.lineTo(kx + 16, T + 6); g.stroke(); g.setLineDash([]); g.fillStyle = '#1f2328'; g.fillText(t, kx + 20, T + 9); kx += 30 + g.measureText(t).width; }
+  g.fillStyle = '#6a737d'; g.fillText('weighted progress', W - R - 95, T + 9);
+}
+function tlStop() { clearInterval(tl.timer); tl.timer = 0; $('tlPlay').textContent = '▶ Play'; }
+function tlPlay() {
+  if (tl.timer) { tlStop(); return; }
+  if (tl.t >= tl.t1) tl.t = tl.t0;
+  $('tlPlay').textContent = '❚❚ Pause';
+  tl.timer = setInterval(() => {
+    tl.t = Math.min(tl.t1, tl.t + (+$('tlSpeed').value) * DAY);
+    tlRefresh();
+    if (tl.t >= tl.t1) tlStop();
+  }, 160);
+}
+
+// ---- split screen: every model mesh gets a twin carrying two per-element states (aL left, aR right);
+// the shader colours or hides by state, and each half of the canvas is drawn with its own side.
+// States: -2 ground / roads, -1 no activity, 0 hidden (not started on that side), 1 in progress, 2 complete.
+// Both sides use the model's own materials and colours (as in the normal view); only state 0 is hidden.
+const CMP_U = { uSide: { value: 0 }, uC1: { value: new THREE.Color(0x3c007b) }, uC2: { value: new THREE.Color(0x72a64c) }, uCtx: { value: new THREE.Color(0xd5d9de) } };
+const CMP_MATS = new Map();          // normal material -> clone that also hides state-0 elements on its side
+function cmpMat(base) {
+  let m = CMP_MATS.get(base);
+  if (m) return m;
+  m = base.clone();
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uSide = CMP_U.uSide;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aL;\nattribute float aR;\nuniform float uSide;')
+      .replace('#include <project_vertex>', 'float cs = uSide < 0.5 ? aL : aR;\n#include <project_vertex>\n  if (abs(cs) < 0.5) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);');
+  };
+  m.customProgramCacheKey = () => 'cmp-hide';
+  CMP_MATS.set(base, m);
+  return m;
+}
+// twins take the materials of the normal (IFC colours) view, whatever colour mode is active
+function cmpMaterials() {
+  const save = colorMode; colorMode = 'ifc';
+  for (const [m, c] of cmp.pairs) c.material = cmpMat(getMat(m.userData.cat, m.userData.kind === 'merged', m.userData.trans));
+  colorMode = save;
+}
+const cmp = { on: false, split: 0.5, root: new THREE.Group(), pairs: [], copy: new Map(), code: new Map(), keep: new Map(), drag: false };
+cmp.root.visible = false; scene.add(cmp.root);
+function cmpBuild() {
+  if (cmp.pairs.length) return;
+  for (const m of meshes) {
+    const g0 = m.geometry, g = new THREE.BufferGeometry();
+    let c;
+    if (m.userData.kind === 'inst') {
+      for (const k of ['position', 'normal', 'color', 'uv']) if (g0.attributes[k]) g.setAttribute(k, g0.attributes[k]);
+      g.setIndex(g0.index);
+      const n = m.count;
+      g.setAttribute('aL', new THREE.InstancedBufferAttribute(new Float32Array(n).fill(-2), 1));
+      g.setAttribute('aR', new THREE.InstancedBufferAttribute(new Float32Array(n).fill(-2), 1));
+      c = new THREE.InstancedMesh(g, undefined, n);
+      for (let i = 0; i < n; i++) c.setMatrixAt(i, _im4.fromArray(m.userData.base[i]));
+      c.instanceMatrix.needsUpdate = true; c.computeBoundingSphere();
+    } else {
+      const nv = g0.attributes.position.count;
+      g.setAttribute('position', new THREE.BufferAttribute(m.userData.pos0, 3));
+      g.setAttribute('normal', g0.attributes.normal);
+      g.setAttribute('color', new THREE.BufferAttribute(m.userData.col0, 3));
+      if (g0.attributes.uv) g.setAttribute('uv', g0.attributes.uv);
+      g.setAttribute('aL', new THREE.BufferAttribute(new Float32Array(nv).fill(-2), 1));
+      g.setAttribute('aR', new THREE.BufferAttribute(new Float32Array(nv).fill(-2), 1));
+      g.setIndex(g0.index); g.computeBoundingSphere();
+      c = new THREE.Mesh(g);
+    }
+    cmp.root.add(c); cmp.pairs.push([m, c]); cmp.copy.set(m, c);
+  }
+}
+function cmpDispose() {
+  for (const [, c] of cmp.pairs) { c.geometry.dispose(); if (c.isInstancedMesh) c.dispose(); }
+  cmp.root.clear(); cmp.pairs.length = 0; cmp.copy.clear(); cmp.code.clear(); cmp.keep.clear();
+  for (const m of CMP_MATS.values()) m.dispose(); CMP_MATS.clear();
+}
+const keepOwn = (eid) => {
+  if (!cmp.keep.has(eid)) cmp.keep.set(eid, /GeographicElement/i.test(elementType(eid)) || elements.get(eid).parts.some(p => p.cat === 'ground' || p.cat === 'road'));
+  return cmp.keep.get(eid);
+};
+function cmpRefresh() {
+  const D = tl.t, touched = new Set();
+  for (const [eid, e] of elements) {
+    let L, R;
+    if (e.hidden) L = R = 0;
+    else if (keepOwn(eid)) L = R = -2;
+    else if (!tlTasks(eid).length) L = R = -1;
+    else { L = elemState(eid, D, tl.cmpBasis); R = elemState(eid, D, 'actual'); }
+    const key = L * 10 + R;
+    if (cmp.code.get(eid) === key) continue;
+    cmp.code.set(eid, key);
+    for (const p of e.parts) {
+      const c = cmp.copy.get(p.mesh); if (!c) continue;
+      const aL = c.geometry.attributes.aL, aR = c.geometry.attributes.aR;
+      if (p.mesh.userData.kind === 'inst') { aL.array[p.i] = L; aR.array[p.i] = R; }
+      else { aL.array.fill(L, p.start, p.start + p.count); aR.array.fill(R, p.start, p.start + p.count); }
+      touched.add(c);
+    }
+  }
+  for (const c of touched) { c.geometry.attributes.aL.needsUpdate = true; c.geometry.attributes.aR.needsUpdate = true; }
+  needsRender = true;
+}
+// is the element hidden (state 0) in the pane that was clicked?
+function cmpHiddenHere(eid) {
+  const k = cmp.code.get(eid); if (k == null) return false;
+  const L = Math.round(k / 10), R = k - L * 10;
+  return (cmp.side ? R : L) === 0;
+}
+function cmpPlace() {
+  const W = view.clientWidth, x = Math.round(W * cmp.split);
+  $('cmpDiv').style.left = x + 'px';
+  $('cmpL').style.left = '60px'; $('cmpR').style.right = '132px';          // clear of the view strip and the view cube
+  $('cmpL').style.opacity = x > 120 ? 1 : 0; $('cmpR').style.opacity = W - x > 120 ? 1 : 0;
+}
+function cmpLabels() {
+  const d = new Date(tl.t), ds = `${d.getDate()} ${MON[d.getMonth()]} ${d.getFullYear()}`;
+  $('cmpL').textContent = `${BASIS[tl.cmpBasis]} · ${ds}`;
+  $('cmpR').textContent = `Actual · ${ds}` + (tl.t > tl.dd + DAY ? ' (as at data date)' : '');
+}
+function cmpOn() {
+  cmpBuild(); cmpMaterials(); cmp.on = true;
+  for (const id of ['cmpDiv', 'cmpL', 'cmpR']) $(id).hidden = false;
+  sun.castShadow = false;
+  cmpPlace(); needsRender = true;
+}
+function cmpOff() {
+  if (!cmp.on) return;
+  cmp.on = false;
+  for (const id of ['cmpDiv', 'cmpL', 'cmpR']) $(id).hidden = true;
+  applyEnvironment();
+}
+function cmpRender() {
+  for (const [m, c] of cmp.pairs) c.visible = m.visible;
+  const W = view.clientWidth, H = view.clientHeight, x = Math.round(W * cmp.split);
+  modelRoot.visible = false; hlRoot.visible = false; cmp.root.visible = true;
+  renderer.setScissorTest(true);
+  const side = (u, x0, w) => {
+    if (w < 1) return;
+    CMP_U.uSide.value = u;
+    renderer.setScissor(x0, 0, w, H);
+    renderer.render(scene, camera);
+  };
+  side(0, 0, x); side(1, x, W - x);
+  renderer.setScissorTest(false);
+  modelRoot.visible = true; hlRoot.visible = true; cmp.root.visible = false;
+}
+// mouse position -> normalised device coordinates of the pane under it (split screen: each pane has its own aspect)
+function paneNDC(ev, out) {
+  const r = renderer.domElement.getBoundingClientRect(), px = ev.clientX - r.left;
+  if (cmp.on) cmp.side = px < r.width * cmp.split ? 0 : 1;
+  out.set((px / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+  return r.width / r.height;
+}
+// one picture for both sides: the camera never changes, only which side of the divider the mouse is on
+function withPaneCamera(aspect, fn) { return fn(); }
+$('cmpDiv').onpointerdown = (ev) => { ev.preventDefault(); ev.stopPropagation(); $('cmpDiv').setPointerCapture(ev.pointerId); cmp.drag = true; };
+$('cmpDiv').onpointermove = (ev) => {
+  if (!cmp.drag) return;
+  const r = view.getBoundingClientRect();
+  cmp.split = Math.min(0.9, Math.max(0.1, (ev.clientX - r.left) / r.width));
+  cmpPlace(); needsRender = true;
+};
+$('cmpDiv').onpointerup = $('cmpDiv').onpointercancel = () => { cmp.drag = false; };
+new ResizeObserver(() => { if (cmp.on) { cmpPlace(); needsRender = true; } }).observe(view);
+
+$('bSim').onclick = () => tlOpen('sim');
+$('bPva').onclick = () => tlOpen('cmp');
+document.querySelectorAll('.tl-mode button').forEach(b => b.onclick = () => { if (tl.mode !== b.dataset.m) tlOpen(b.dataset.m); });
+$('tlBasis').onchange = (e) => tlOpen(tl.mode, e.target.value);
+$('tlPlay').onclick = tlPlay;
+$('tlDD').onclick = () => { tlStop(); tl.t = Math.min(Math.max(tl.dd, tl.t0), tl.t1); tlRefresh(); };
+$('tlClose').onclick = tlClose;
+$('tlSlider').oninput = (e) => { tlStop(); tl.t = tl.t0 + (+e.target.value) * DAY; tlRefresh(); };
+new ResizeObserver(() => { if (tl.mode) tlDrawChart(); }).observe($('tlChart'));
+
+// ---------------------------------------------------------------- element filter (top of the Model tree tab)
+// Each kind is a plain-language element type; an element can belong to several (e.g. a pile is also part of "Tables").
+const KINDS = [
+  ['Tables (piles + MMS + modules)', (n) => /^S6a-B\d+-T\d+ /.test(n)],
+  ['PV modules', (n) => /^S6a-B\d+-T\d+ PV Modules/.test(n), 1],
+  ['MMS structure', (n) => /^S6a-B\d+-T\d+ MMS Structure/.test(n), 1],
+  ['Piles', (n) => /^S6a-B\d+-T\d+ Piles/.test(n), 1],
+  ['String inverters', (n) => /^S6a-B\d+-INV\d+ String Inverter/.test(n)],
+  ['Inverter structures + canopy', (n) => /^S6a-B\d+-INV\d+ Inverter Structure/.test(n)],
+  ['ICR stations (all parts)', (n) => /^S6a-ICR-\d+ /.test(n)],
+  ['IDT transformer', (n) => /^S6a-ICR-\d+ IDT 13/.test(n), 1],
+  ['HT panel', (n) => /^S6a-ICR-\d+ HT Panel/.test(n), 1],
+  ['LT panel / ACDB', (n) => /^S6a-ICR-\d+ LT Panel/.test(n), 1],
+  ['Auxiliary transformer', (n) => /^S6a-ICR-\d+ Auxiliary Transformer/.test(n), 1],
+  ['IDT station plinth', (n) => /^S6a-ICR-\d+ IDT Station Plinth/.test(n), 1],
+  ['IDT fencing & gate', (n) => /^S6a-ICR-\d+ IDT Fencing/.test(n), 1],
+  ['Block zones (ground)', (n) => /Array Zone$/.test(n)],
+  ['All roads', (n, t) => t === 'IfcCivilElement' && /road/i.test(n)],
+  ['Internal roads', (n) => /^S6a Internal Roads/.test(n), 1],
+  ['Approach roads', (n) => /^S6a Approach Roads/.test(n), 1],
+  ['Peripheral plant road', (n) => /^S6a Peripheral Plant Road/.test(n), 1],
+  ['WTG access roads + hardstands', (n) => /^WTG (Access Roads|Crane Hardstands)/.test(n), 1],
+  ['Plant boundary fence', (n, t) => t === 'IfcRailing' && !/^S6a-ICR/.test(n)],
+  ['Wind turbines (WTG)', (n, t) => t === 'IfcElectricGenerator' || /^WTG-\d+ Rotor/.test(n)],
+  ['400 kV towers + lines', (n, t) => /^TL-400kV/.test(n) || t === 'IfcCableSegment'],
+  ['PSS-10 substation', (n) => /^PSS-10 /.test(n)],
+  ['BESS containers', (n) => /Battery Container|PCS\/MVT Skid/i.test(n)],
+  ['Other pooling substations', (n) => /^PSS-\d+ \(KPS/.test(n)],
+  ['Other solar plots', (n) => /^Solar Plot P\d+/.test(n)],
+];
+const KIND_IND = '\u00a0\u00a0\u00a0\u00a0';     // a sub-type sits indented under its group
+const kindIndex = new Map(), blockIndex = new Map();
+function blockOfElem(eid) {
+  for (let nid = elements.get(eid).container; nid != null; ) {
+    const n = spatial.nodes.get(nid); if (!n) break;
+    const m = (n.name || '').match(/^Block-(\d+)/); if (m) return +m[1];
+    nid = n.parent;
+  }
+  return 0;
+}
+function buildFilterUI() {
+  kindIndex.clear(); blockIndex.clear();
+  for (const [label] of KINDS) kindIndex.set(label, []);
+  for (const eid of elements.keys()) {
+    const n = lineName(eid), t = elementType(eid);
+    for (const [label, test] of KINDS) if (test(n, t)) kindIndex.get(label).push(eid);
+    const b = blockOfElem(eid);
+    if (!blockIndex.has(b)) blockIndex.set(b, []);
+    blockIndex.get(b).push(eid);
+  }
+  const fmt = (v) => v.toLocaleString('en-IN');
+  $('fKind').innerHTML = '<option value="">All element types</option>' +
+    KINDS.filter(([l]) => kindIndex.get(l).length).map(([l, , d]) => `<option value="${escapeHtml(l)}">${KIND_IND.repeat(d || 0)}${escapeHtml(l)} (${fmt(countOf(kindIndex.get(l)))})</option>`).join('');
+  const blocks = [...blockIndex.keys()].filter(b => b > 0).sort((a, b) => a - b);
+  $('fBlock').innerHTML = '<option value="">All blocks</option>' +
+    blocks.map(b => `<option value="${b}">${withPhase('Block-' + String(b).padStart(2, '0'), b)}</option>`).join('') +
+    (blockIndex.has(0) ? '<option value="0">Outside the blocks</option>' : '');
+  $('fKind').value = ''; $('fBlock').value = ''; $('fName').value = '';
+  if (sched.elemTasks.size) $('schKind').innerHTML = '<option value="">All element types</option>' + KINDS.map(([l, , d]) => [l, countOf(kindIndex.get(l)), d])
+    .filter(([, n]) => n).map(([l, n, d]) => `<option value="${escapeHtml(l)}">${KIND_IND.repeat(d || 0)}${escapeHtml(l)} (${n.toLocaleString('en-IN')})</option>`).join('');
+  $('fInfo').innerHTML = 'Pick a type and/or a block, or type part of a name.'; $('fList').innerHTML = '';
+}
+function applyFilter() {
+  const kind = $('fKind').value, blk = $('fBlock').value, q = $('fName').value.trim().toLowerCase();
+  if (!kind && blk === '' && q.length < 2) { $('fInfo').innerHTML = 'Pick a type and/or a block, or type part of a name.'; $('fList').innerHTML = ''; select([]); return; }
+  let ids = kind ? kindIndex.get(kind) : blk !== '' ? blockIndex.get(+blk) : [...elements.keys()];
+  if (kind && blk !== '') { const inB = new Set(blockIndex.get(+blk) || []); ids = ids.filter(id => inB.has(id)); }
+  if (q.length >= 2) ids = ids.filter(id => (lineName(id) + ' ' + tagOf(id)).toLowerCase().includes(q));
+  ids = ids.filter(id => !elements.get(id).hidden);
+  const what = [kind || (blk === '' ? 'Elements' : 'All elements'), blk === '' ? '' : (blk === '0' ? 'outside the blocks' : `in Block-${String(blk).padStart(2, '0')}`), q.length >= 2 ? `matching “${escapeHtml(q)}”` : ''].filter(Boolean).join(' ');
+  $('fInfo').innerHTML = ids.length
+    ? `${what} · <b>${countOf(ids).toLocaleString('en-IN')}</b> ${countWord(countOf(ids))}${ids.length > FOCUS_MAX ? ' <span title="Too many to fade the rest; shown in orange">(orange)</span>' : ''}`
+    : `No match · ${what}`;
+  const sorted = ids.slice(0, 2000).map(id => [id, lineName(id)]).sort((a, b) => a[1].localeCompare(b[1], undefined, { numeric: true }));
+  $('fList').innerHTML = ids.length > 1 ? sorted.slice(0, 200).map(([id, nm]) => `<div class="row" data-e="${id}"><span class="nm" title="${escapeHtml(nm)}">${escapeHtml(nm || '#' + id)}</span></div>`).join('') +
+    (ids.length > 200 ? `<div class="row muted">… ${(ids.length - 200).toLocaleString('en-IN')} more</div>` : '') : '';
+  $('fList').querySelectorAll('.row[data-e]').forEach(r => { r.onclick = () => select([+r.dataset.e], true); });
+  select(ids, ids.length > 0);
+}
+$('fKind').onchange = applyFilter;
+$('fBlock').onchange = applyFilter;
+let fTimer = 0;
+$('fName').addEventListener('input', () => { clearTimeout(fTimer); fTimer = setTimeout(applyFilter, 250); });
+$('fClear').onclick = () => { $('fKind').value = ''; $('fBlock').value = ''; $('fName').value = ''; applyFilter(); };
+
+// IFC class name in schema casing (e.g. IfcSolarDevice), taken from web-ifc's entity classes
+const typeNameCache = new Map();
+function elementType(eid) {
+  if (META) { const m = META.get(eid); return m ? m.cls : (spatial.nodes.get(eid)?.type || ''); }
+  let code;
+  try { code = ifc.GetLineType(modelID, eid); } catch (e) { return ''; }
+  if (!typeNameCache.has(code)) {
+    let n = '';
+    try { n = ifc.GetLine(modelID, eid).constructor.name; } catch (e) {}
+    if (!/^Ifc[A-Z]/.test(n)) n = prettyType(ifc.GetNameFromTypeCode(code));
+    typeNameCache.set(code, n);
+  }
+  return typeNameCache.get(code);
+}
+// IfcSolarDevice -> Solar Device: the tree shows what a thing is, not its IFC class name
+const niceType = (t) => String(t || '').replace(/^Ifc/, '').replace(/([a-z])([A-Z])/g, '$1 $2');
+function prettyType(t) {
+  if (!t) return '';
+  if (/^Ifc[A-Z]/.test(t)) return t;
+  return 'Ifc' + t.slice(3).toLowerCase().replace(/^./, c => c.toUpperCase());
+}
+
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+// an element is its name and its VisiLean activities: no IFC ids, location, type or property sets (user 23-Oct)
+function showProps(eid) {
+  $('props').innerHTML = `<h2>${escapeHtml(lineName(eid) || prettyType(elementType(eid)))}</h2>` + linkedActivitiesHtml(eid);
+}
+function table(rows) {
+  if (!rows.length) return '<p class="muted">–</p>';
+  return '<table>' + rows.map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`).join('') + '</table>';
+}
+
+// ---------------------------------------------------------------- bounds & camera
+const _box = new THREE.Box3(), _b2 = new THREE.Box3(), _v = new THREE.Vector3();
+function partBox(p, out) {
+  if (p.mesh.userData.kind === 'inst') {
+    if (!p.mesh.geometry.boundingBox) p.mesh.geometry.computeBoundingBox();
+    tmpMat.fromArray(p.mesh.userData.base[p.i]);
+    return out.copy(p.mesh.geometry.boundingBox).applyMatrix4(tmpMat);
+  }
+  out.makeEmpty();
+  const a = p.mesh.userData.pos0;
+  for (let i = p.start; i < p.start + p.count; i++) out.expandByPoint(_v.set(a[i*3], a[i*3+1], a[i*3+2]));
+  return out;
+}
+function boxOf(ids) {
+  _box.makeEmpty();
+  for (const id of ids) { const e = elements.get(id); if (!e) continue; for (const p of e.parts) _box.union(partBox(p, _b2)); }
+  return _box.isEmpty() ? null : _box.clone();
+}
+function fitBox(b, fromTop = false) {
+  if (!b) return;
+  const c = b.getCenter(new THREE.Vector3()), s = b.getSize(new THREE.Vector3());
+  const r = Math.max(4, 0.5 * Math.hypot(s.x, s.y, s.z));
+  const d = r / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2)) * 1.05;
+  let dir = camera.position.clone().sub(controls.target).normalize();
+  if (fromTop) dir.set(0, 1, 0.0001).normalize();
+  else if (dir.y < 0.25) dir.set(dir.x, 0.45, dir.z).normalize();
+  controls.target.copy(c);
+  camera.position.copy(c).addScaledVector(dir, d);
+  controls.update(); needsRender = true; shadowDirty = true;
+}
+function fitTo(ids) { fitBox(boxOf(ids)); }
+function fitAll(top = false) {
+  // ignore very large ground objects (terrain) when framing
+  const ids = [...elements.keys()].filter(id => !/GeographicElement/i.test(elementType(id)) || elements.size < 50);
+  const b = boxOf(ids.length ? ids : [...elements.keys()]);
+  if (!b) return;
+  camera.position.set(b.min.x - (b.max.x - b.min.x) * 0.1, (b.max.x - b.min.x) * 0.6, b.max.z + (b.max.z - b.min.z) * 0.9);
+  fitBox(b, top);
+}
+
+// ---------------------------------------------------------------- picking
+const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
+function pick(ev) {
+  const asp = paneNDC(ev, mouse);
+  withPaneCamera(asp, () => ray.setFromCamera(mouse, camera));
+  const hits = ray.intersectObjects(meshes, false);
+  for (const h of hits) {
+    if (!h.object.visible) continue;
+    let eid;
+    if (h.object.userData.kind === 'inst') eid = h.object.userData.eids[h.instanceId];
+    else eid = h.object.geometry.attributes.eid.getX(h.face.a);
+    const e = elements.get(eid);
+    if (e && !e.hidden && !(cmp.on && cmpHiddenHere(eid))) return { eid, point: h.point };
+  }
+  return null;
+}
+let down = null;
+renderer.domElement.addEventListener('pointerdown', ev => { down = [ev.clientX, ev.clientY]; });
+renderer.domElement.addEventListener('pointerup', ev => {
+  if (!down || Math.hypot(ev.clientX - down[0], ev.clientY - down[1]) > 4 || ev.button !== 0) return;
+  const h = pick(ev);
+  if (h) {
+    select([h.eid], false, ev.ctrlKey || ev.shiftKey);
+    revealInTree(h.eid);
+  } else select([]);
+});
+// ---- zoom about the point under the cursor (wheel) and fly-to on double-click
+const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+let zoomPivot = null, zoomPivotAt = 0, zoomPivotXY = [0, 0];
+function pointUnderCursor(ev, precise = true) {
+  if (precise) { const h = pick(ev); if (h) return h.point.clone(); }
+  const asp = paneNDC(ev, mouse);
+  withPaneCamera(asp, () => ray.setFromCamera(mouse, camera));
+  const p = new THREE.Vector3();
+  if (ray.ray.intersectPlane(groundPlane, p) && p.distanceTo(camera.position) < camera.far * 0.5) return p;
+  return controls.target.clone();
+}
+function sceneRadius() {
+  if (!sceneRadius.v) { const b = boxOf([...elements.keys()].filter(id => !/GeographicElement/i.test(elementType(id)))); sceneRadius.v = b ? Math.max(500, b.getSize(new THREE.Vector3()).length() / 2) : 5000; sceneRadius.c = b ? b.getCenter(new THREE.Vector3()) : new THREE.Vector3(); }
+  return sceneRadius.v;
+}
+renderer.domElement.addEventListener('wheel', (ev) => {
+  ev.preventDefault();
+  if (camAnim) camAnim = null;
+  const now = performance.now();
+  // pick the pivot once per wheel gesture (raycasting every tick would be slow on a large model)
+  if (!zoomPivot || now - zoomPivotAt > 350 || Math.hypot(ev.clientX - zoomPivotXY[0], ev.clientY - zoomPivotXY[1]) > 6) {
+    zoomPivot = pointUnderCursor(ev, true); zoomPivotXY = [ev.clientX, ev.clientY];
+  }
+  zoomPivotAt = now;
+  const dy = ev.deltaMode === 1 ? ev.deltaY * 33 : ev.deltaY;
+  let s = Math.exp(THREE.MathUtils.clamp(dy, -300, 300) * 0.0015);        // <1 zoom in, >1 zoom out
+  const dist = camera.position.distanceTo(zoomPivot);
+  if (s < 1 && dist * s < 2) s = Math.min(1, 2 / dist);                    // stop ~2 m from the surface
+  const R = sceneRadius(), maxD = R * 2.6;
+  if (s > 1 && camera.position.distanceTo(sceneRadius.c) * s > maxD) s = Math.max(1, maxD / Math.max(1, camera.position.distanceTo(sceneRadius.c)));
+  if (s === 1) return;
+  camera.position.sub(zoomPivot).multiplyScalar(s).add(zoomPivot);
+  controls.target.sub(zoomPivot).multiplyScalar(s).add(zoomPivot);
+  if (s > 1) {
+    // when zooming far out, drift back towards the park centre so the whole model stays in view
+    const d = camera.position.distanceTo(controls.target);
+    const k = THREE.MathUtils.clamp((d - R * 0.5) / (R * 1.5), 0, 1) * 0.25;
+    if (k > 0) {
+      const shift = sceneRadius.c.clone().setY(controls.target.y).sub(controls.target).multiplyScalar(k);
+      controls.target.add(shift); camera.position.add(shift);
+    }
+  }
+  if (camera.position.y < 0.6) camera.position.y = 0.6;
+  controls.update(); needsRender = true; shadowDirty = true;
+}, { passive: false });
+// smooth camera flight (double-click)
+let camAnim = null;
+function flyTo(pos, target, dur = 0.7) { camAnim = { p0: camera.position.clone(), t0: controls.target.clone(), p1: pos, t1: target, t: 0, dur }; }
+function stepCamAnim(dt) {
+  camAnim.t += dt; const k = Math.min(1, camAnim.t / camAnim.dur), e = k * k * (3 - 2 * k);
+  camera.position.lerpVectors(camAnim.p0, camAnim.p1, e); controls.target.lerpVectors(camAnim.t0, camAnim.t1, e);
+  controls.update(); needsRender = true; shadowDirty = true;
+  if (k >= 1) camAnim = null;
+}
+renderer.domElement.addEventListener('dblclick', ev => {
+  const h = pick(ev);
+  const p = h ? h.point.clone() : pointUnderCursor(ev, false);
+  if (h) select([h.eid], false);
+  // keep the viewing direction, come in to ~35% of the distance (at least 25 m away)
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  const d = Math.max(25, camera.position.distanceTo(p) * 0.35);
+  flyTo(p.clone().addScaledVector(dir, d), p);
+});
+
+// ---------------------------------------------------------------- tree UI
+function descendants(nodeId, out = []) {
+  const n = spatial.nodes.get(nodeId); if (!n) return out;
+  for (const e of n.elems) if (elements.has(e)) out.push(e);
+  for (const k of n.kids) descendants(k, out);
+  return out;
+}
+const groupKey = (nodeId, cls) => `g:${nodeId}:${cls}`;
+const groupCache = new Map();
+function groupElems(nodeId) {
+  if (groupCache.has(nodeId)) return groupCache.get(nodeId);
+  const n = spatial.nodes.get(nodeId), m = new Map();
+  for (const e of n.elems) { if (!elements.has(e)) continue; const c = prettyType(elementType(e)); if (!m.has(c)) m.set(c, []); m.get(c).push(e); }
+  groupCache.set(nodeId, m); return m;
+}
+function idsForKey(k) {
+  if (k.startsWith('n:')) return descendants(+k.slice(2));
+  if (k.startsWith('g:')) { const [, nid, cls] = k.split(':'); return groupElems(+nid).get(cls) || []; }
+  if (k.startsWith('e:')) return [+k.slice(2)];
+  return [];
+}
+function updateEye(el) {
+  const ids = idsForKey(el.dataset.k);
+  const vis = ids.filter(i => !elements.get(i).hidden).length;
+  el.textContent = vis === 0 ? '◌' : '●';
+  el.classList.toggle('off', vis === 0);
+  el.title = vis === 0 ? 'Show' : 'Hide';
+  if (el.type === 'checkbox') el.checked = vis > 0;
+}
+function eyeHtml(k) { return `<span class="eye" data-k="${k}">●</span>`; }
+function bindEye(root) {
+  root.querySelectorAll('.eye[data-k]').forEach(el => {
+    updateEye(el);
+    el.onclick = (ev) => {
+      ev.stopPropagation();
+      const ids = idsForKey(el.dataset.k);
+      const anyVis = ids.some(i => !elements.get(i).hidden);
+      for (const i of ids) setHidden(i, anyVis);
+      refreshVisibilityUI();
+    };
+  });
+}
+function nodeRow(nodeId, depth) {
+  const n = spatial.nodes.get(nodeId);
+  const total = countOf(descendants(nodeId));
+  const div = document.createElement('div');
+  const hasKids = n.kids.length || n.elems.length;
+  div.innerHTML = `<div class="row" style="padding-left:${8 + depth * 14}px" data-n="${nodeId}"><span class="tw">${hasKids ? '▸' : ''}</span>${eyeHtml('n:' + nodeId)}<span class="nm" title="${escapeHtml(n.name)}">${escapeHtml(n.name || niceType(elementType(nodeId)))}</span><span class="cls">${niceType(elementType(nodeId))}</span><span class="ct">${total || ''}</span></div><div class="kids" style="display:none"></div>`;
+  const row = div.firstElementChild, kids = div.lastElementChild;
+  let built = false;
+  const toggle = () => {
+    if (!built) {
+      built = true;
+      for (const k of n.kids) kids.appendChild(nodeRow(k, depth + 1));
+      for (const [cls, ids] of [...groupElems(nodeId).entries()].sort((a, b) => b[1].length - a[1].length)) kids.appendChild(groupRow(nodeId, cls, ids, depth + 1));
+      bindEye(kids);
+    }
+    const open = kids.style.display === 'none';
+    kids.style.display = open ? 'block' : 'none';
+    row.querySelector('.tw').textContent = hasKids ? (open ? '▾' : '▸') : '';
+  };
+  row.querySelector('.tw').onclick = (ev) => { ev.stopPropagation(); toggle(); };
+  row.onclick = () => { select(descendants(nodeId)); };
+  row.ondblclick = () => { fitTo(descendants(nodeId)); };
+  row._toggle = toggle;
+  return div;
+}
+function groupRow(nodeId, cls, ids, depth) {
+  const div = document.createElement('div');
+  div.innerHTML = `<div class="row" style="padding-left:${8 + depth * 14}px"><span class="tw">▸</span>${eyeHtml(groupKey(nodeId, cls))}<span class="nm">${niceType(cls)}</span><span class="ct">${countOf(ids) || ''}</span></div><div class="kids" style="display:none"></div>`;
+  const row = div.firstElementChild, kids = div.lastElementChild;
+  let built = false;
+  const toggle = () => {
+    if (!built) {
+      built = true;
+      const frag = document.createDocumentFragment();
+      const sorted = ids.map(id => [id, lineName(id)]).sort((a, b) => a[1].localeCompare(b[1], undefined, { numeric: true }));
+      for (const [id, nm] of sorted.slice(0, 3000)) {
+        const r = document.createElement('div');
+        r.className = 'row'; r.dataset.e = id; r.style.paddingLeft = (8 + (depth + 1) * 14) + 'px';
+        r.innerHTML = `<span class="tw"></span>${eyeHtml('e:' + id)}<span class="nm" title="${escapeHtml(nm)}">${escapeHtml(nm || '#' + id)}</span>`;
+        if (selected.has(id)) r.classList.add('sel');
+        r.onclick = (ev) => select([id], false, ev.ctrlKey || ev.shiftKey);
+        r.ondblclick = () => select([id], true);
+        frag.appendChild(r);
+      }
+      if (ids.length > 3000) { const r = document.createElement('div'); r.className = 'row muted'; r.textContent = `… ${ids.length - 3000} more (use Search)`; frag.appendChild(r); }
+      kids.appendChild(frag); bindEye(kids);
+    }
+    const open = kids.style.display === 'none';
+    kids.style.display = open ? 'block' : 'none';
+    row.querySelector('.tw').textContent = open ? '▾' : '▸';
+  };
+  row.querySelector('.tw').onclick = (ev) => { ev.stopPropagation(); toggle(); };
+  row.onclick = () => select(ids);
+  row.ondblclick = () => fitTo(ids);
+  return div;
+}
+function buildTreeUI() {
+  groupCache.clear();
+  const p = $('treeRoot'); p.innerHTML = '';
+  if (spatial.root == null) { p.innerHTML = '<p class="muted" style="padding:8px">No spatial structure</p>'; return; }
+  const root = nodeRow(spatial.root, 0); p.appendChild(root); bindEye(p);
+  // open first two levels
+  const r0 = root.querySelector('.row'); r0._toggle();
+  root.querySelectorAll(':scope > .kids > div > .row').forEach(r => r._toggle && r._toggle());
+}
+function revealInTree(eid) {
+  const r = document.querySelector(`.row[data-e="${eid}"]`);
+  if (r) r.scrollIntoView({ block: 'nearest' });
+}
+
+// ---------------------------------------------------------------- views menu
+function buildViewsMenu() {
+  const sel = $('views');
+  sel.innerHTML = '<option value="">Zoom to…</option><option value="all">Whole model</option>';
+  const walk = (id, depth) => {
+    const n = spatial.nodes.get(id); if (!n) return;
+    if (/site|building|storey|facility/i.test(n.type) && descendants(id).length) {
+      const o = document.createElement('option'); o.value = id; o.textContent = '  '.repeat(depth) + (n.name || prettyType(n.type)); sel.appendChild(o);
+    }
+    for (const k of n.kids) walk(k, depth + 1);
+  };
+  if (spatial.root != null) for (const k of spatial.nodes.get(spatial.root).kids) walk(k, 0);
+}
+$('views').onchange = (e) => { const v = e.target.value; if (v === 'all') fitAll(); else if (v) fitTo(descendants(+v)); e.target.value = ''; };
+
+// ---------------------------------------------------------------- toolbar & keys
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === 'p-' + b.dataset.t));
+});
+$('bFit').onclick = () => fitAll();
+$('bTop').onclick = () => fitBox(selected.size ? boxOf([...selected]) : boxOf([...elements.keys()].filter(id => !/GeographicElement/i.test(elementType(id)))), true);
+$('colorMode').onchange = (e) => { const v = e.target.value; if (tl.mode) { tl.prevMode = v; tlClose(); } else applyColorMode(v); };
+function isolate() {
+  if (!selected.size) return;
+  for (const eid of elements.keys()) setHidden(eid, !selected.has(eid));
+  refreshVisibilityUI(); fitTo([...selected]);
+}
+function hideSel() { for (const eid of selected) setHidden(eid, true); select([]); refreshVisibilityUI(); }
+function showAll() { for (const eid of elements.keys()) setHidden(eid, false); if (tl.mode) tlRefresh(true); refreshVisibilityUI(); }
+$('bIso').onclick = isolate; $('bHide').onclick = hideSel; $('bShow').onclick = showAll;
+$('bStrip').onclick = () => {
+  const min = $('strip').classList.toggle('min');
+  $('bStrip').title = $('bStrip').ariaLabel = min ? 'Show the toolbar' : 'Minimise the toolbar';
+};
+// each side panel has its own handle on the edge of the 3D view
+for (const [h, side, name] of [['hLeft', 'left', 'left'], ['hRight', 'right', 'right']]) $(h).onclick = () => {
+  const off = $('app').classList.toggle('no-' + side);
+  if (side === 'right' && !off) $('app').classList.add('show-right');      // narrow screens hide it until asked
+  $(h).textContent = (side === 'left') === off ? '›' : '‹';
+  $(h).title = $(h).ariaLabel = (off ? 'Show' : 'Hide') + ` the ${name} panel`;
+};
+$('bReal').onclick = () => setRealistic(!realistic);
+$('bShadow').onclick = () => { shadowsOn = !shadowsOn; $('bShadow').classList.toggle('on', shadowsOn); applyEnvironment(); };
+$('bLabels').onclick = () => { labelsOn = !labelsOn; $('bLabels').classList.toggle('on', labelsOn); needsRender = true; };
+$('bFocus').onclick = () => setFocus(!focusOn);
+async function openFile(f) {
+  setOverlay('Loading model…', 'Reading ' + f.name, 0.05); $('drop').style.display = 'none';
+  const buf = new Uint8Array(await f.arrayBuffer());
+  try { await loadBuffer(buf, f.name); }
+  catch (err) { console.error(err); setOverlay('Could not open file', String(err.message || err), 0); $('drop').style.display = 'block'; }
+}
+view.addEventListener('dragover', e => { e.preventDefault(); });
+view.addEventListener('drop', async e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) await openFile(f); });
+window.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  const k = e.key.toLowerCase();
+  if (k === 'f') fitAll(); else if (k === 't') $('bTop').click(); else if (k === 'i') isolate();
+  else if (k === 'h') hideSel(); else if (k === 'a') showAll();
+  else if (k === 'r') $('bReal').click(); else if (k === 's') $('bShadow').click(); else if (k === 'l') $('bLabels').click();
+  else if (k === 'g') setFocus(!focusOn);
+  else if (k === 'escape') { if (!$('actPop').hidden) closeAct(); else select([]); }
+});
+init().catch(err => { console.error(err); setOverlay('Viewer failed to start', String(err.message || err), 0); $('drop').style.display = 'block'; });
+</script>
+</body>
+</html>
